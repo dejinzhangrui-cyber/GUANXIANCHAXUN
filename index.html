@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#1565C0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>焊口查询</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--main:#1565C0;--ok:#2e7d32;--warn:#ef6c00;--line:#e6e9ef;--bg:#f4f6fa;--sub:#6b7280}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:#1f2937;font:15px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+header{position:sticky;top:0;z-index:9;background:var(--main);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 12px 0}
+.bar{display:flex;align-items:baseline;gap:8px;font-weight:600}
+.bar span{font-size:12px;opacity:.75;font-weight:400}
+.search{margin:10px 0 8px}
+input{width:100%;border:0;border-radius:10px;padding:11px 12px;font-size:16px;outline:none}
+.tabs{display:flex;gap:18px;font-size:14px}
+.tabs button{background:none;border:0;color:#fff;opacity:.6;padding:8px 0;border-bottom:2px solid transparent;font-size:14px}
+.tabs button.on{opacity:1;border-color:#fff;font-weight:600}
+main{padding:10px 12px calc(env(safe-area-inset-bottom) + 20px)}
+.card{background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 2px rgba(16,24,40,.06)}
+.card:active{background:#f0f4ff}
+.card h3{margin:0 0 3px;font-size:16px}
+.card p{margin:0;color:var(--sub);font-size:13px}
+.tag{display:inline-block;background:#eef2ff;color:var(--main);border-radius:6px;padding:1px 7px;font-size:12px;margin:6px 6px 0 0}
+.empty{text-align:center;color:var(--sub);padding:40px 0;font-size:14px}
+.mask{position:fixed;inset:0;background:rgba(16,24,40,.45);display:none;z-index:10}
+.mask.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:82%;background:#fff;border-radius:16px 16px 0 0;z-index:11;display:none;flex-direction:column}
+.sheet.on{display:flex}
+.sh{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);font-weight:600}
+.sh button{background:none;border:0;color:var(--main);font-size:15px}
+.sb{overflow:auto;padding:12px 16px calc(env(safe-area-inset-bottom) + 16px)}
+.stat{display:flex;gap:8px;margin-bottom:12px}
+.stat div{flex:1;background:var(--bg);border-radius:10px;padding:8px 4px;text-align:center}
+.stat b{display:block;font-size:18px}
+.stat span{font-size:11px;color:var(--sub)}
+table.kv{width:100%;border-collapse:collapse;font-size:14px}
+table.kv th{text-align:left;color:var(--sub);font-weight:400;width:38%;padding:7px 0;vertical-align:top;border-bottom:1px solid var(--line)}
+table.kv td{padding:7px 0;border-bottom:1px solid var(--line);word-break:break-all}
+.row{padding:10px 0;border-bottom:1px solid var(--line)}
+.row b{font-size:15px}
+.row p{color:var(--sub);font-size:12px;margin:2px 0 0}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar"><b>焊口查询</b><span id="meta"></span></div>
+  <div class="search"><input id="q" placeholder="管线号 / 焊口号 / 焊工号，空格分多词" autocomplete="off"></div>
+  <div class="tabs"><button data-t="pipe" class="on">管线</button><button data-t="weld">焊口</button></div>
+</header>
+
+<main id="list"></main>
+<div class="mask" id="mask"></div>
+<div class="sheet" id="sheet">
+  <div class="sh"><span id="shtitle"></span><button id="shclose">关闭</button></div>
+  <div class="sb" id="shbody"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
