@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>焊口查询与工作台</title>
     <link rel="manifest" href="manifest.json">
+    <!-- 引入 SheetJS 用于导出 Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: Arial; margin: 0; padding: 10px; background: #f5f5f5; }
         h1 { font-size: 20px; text-align: center; color: #333; margin: 10px 0; }
@@ -16,6 +18,7 @@
         button.green { background: #28a745; }
         button.red { background: #dc3545; }
         button.gray { background: #6c757d; }
+        button.orange { background: #fd7e14; }
         .full-btn { width: 100%; margin-top: 8px; padding: 12px; font-size: 16px; }
 
         .stat { display: flex; justify-content: space-around; margin-bottom: 12px; background: #fff; padding: 10px; border-radius: 5px; }
@@ -29,9 +32,9 @@
         .result-item .detect { background: #f9f9f9; padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 13px; }
 
         /* 控制台表格 */
-        table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
-        th, td { border: 1px solid #ddd; padding: 4px; text-align: center; }
-        th { background: #f0f0f0; font-weight: bold; font-size: 11px; }
+        table { border-collapse: collapse; font-size: 12px; white-space: nowrap; min-width: 1200px; }
+        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; white-space: nowrap; }
+        th { background: #f0f0f0; font-weight: bold; font-size: 12px; min-width: 60px; }
         td input { width: 55px; padding: 6px 3px; box-sizing: border-box; border: 1px solid #eee; border-radius: 3px; font-size: 12px; text-align: center; }
         td input.wide { width: 110px; text-align: left; }
         td input[type="date"] { width: 120px; }
@@ -80,9 +83,12 @@
 
     <!-- ========== 控制台区（默认隐藏） ========== -->
     <div id="adminSection" class="hidden">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
             <h2 style="margin:0; font-size:18px;">📊 控制台</h2>
-            <button class="gray" onclick="exitAdmin()">退出控制台</button>
+            <div>
+                <button class="orange" onclick="exportExcel()">📥 导出Excel</button>
+                <button class="gray" onclick="exitAdmin()">退出控制台</button>
+            </div>
         </div>
 
         <div class="card" style="padding:8px;">
@@ -99,15 +105,15 @@
                         <th>管工</th>
                         <th>焊工</th>
                         <th>普工</th>
-                        <th>管道安装<br>(寸)</th>
-                        <th>管道预制<br>(寸)</th>
-                        <th>支架安装<br>(个)</th>
-                        <th>安装重量<br>(kg)</th>
-                        <th>阀门安装<br>(台)</th>
-                        <th>支架预制<br>(个)</th>
-                        <th>预制重量<br>(kg)</th>
-                        <th>包含2寸<br>以下(寸)</th>
-                        <th>工作内容/备注</th>
+                        <th>管道安装(寸)</th>
+                        <th>管道预制(寸)</th>
+                        <th>支架安装(个)</th>
+                        <th>安装重量(kg)</th>
+                        <th>阀门安装(台)</th>
+                        <th>支架预制(个)</th>
+                        <th>预制重量(kg)</th>
+                        <th>包含2寸以下(寸)</th>
+                        <th>备注</th>
                         <th>日期</th>
                         <th>操作</th>
                     </tr>
@@ -267,24 +273,83 @@
             let records = getRecords();
             if (day) records = records.filter(r => r.date === day);
 
-            const sum = { guan:0, han:0, pu:0, pipeInstall:0, pipePre:0, bracketInstall:0, installWeight:0, valve:0, bracketPre:0, preWeight:0, under2:0 };
+            const sum = {
+                guan: 0, han: 0, pu: 0,
+                pipeInstall: 0, pipePre: 0, bracketInstall: 0, installWeight: 0,
+                valve: 0, bracketPre: 0, preWeight: 0, under2: 0
+            };
             records.forEach(r => Object.keys(sum).forEach(k => { sum[k] += parseFloat(r[k]) || 0; }));
 
             document.getElementById('summaryBox').innerHTML =
                 '<div class="sum-item"><span>' + sum.guan + '</span><label>管工</label></div>' +
                 '<div class="sum-item"><span>' + sum.han + '</span><label>焊工</label></div>' +
                 '<div class="sum-item"><span>' + sum.pu + '</span><label>普工</label></div>' +
-                '<div class="sum-item"><span>' + sum.pipeInstall + '</span><label>管道安装(寸)</label></div>' +
-                '<div class="sum-item"><span>' + sum.pipePre + '</span><label>管道预制(寸)</label></div>' +
+                '<div class="sum-item"><span>' + sum.pipeInstall.toFixed(2) + '</span><label>管道安装(寸)</label></div>' +
+                '<div class="sum-item"><span>' + sum.pipePre.toFixed(2) + '</span><label>管道预制(寸)</label></div>' +
                 '<div class="sum-item"><span>' + sum.bracketInstall + '</span><label>支架安装(个)</label></div>' +
-                '<div class="sum-item"><span>' + sum.installWeight + '</span><label>安装重量(kg)</label></div>' +
+                '<div class="sum-item"><span>' + sum.installWeight.toFixed(2) + '</span><label>安装重量(kg)</label></div>' +
                 '<div class="sum-item"><span>' + sum.valve + '</span><label>阀门安装(台)</label></div>' +
                 '<div class="sum-item"><span>' + sum.bracketPre + '</span><label>支架预制(个)</label></div>' +
-                '<div class="sum-item"><span>' + sum.preWeight + '</span><label>预制重量(kg)</label></div>' +
-                '<div class="sum-item"><span>' + sum.under2 + '</span><label>包含2寸以下(寸)</label></div>';
+                '<div class="sum-item"><span>' + sum.preWeight.toFixed(2) + '</span><label>预制重量(kg)</label></div>' +
+                '<div class="sum-item"><span>' + sum.under2.toFixed(2) + '</span><label>包含2寸以下(寸)</label></div>';
         }
 
         function renderAll() { renderTable(); renderSummary(); }
+
+        // ================= 导出 Excel =================
+        function exportExcel() {
+            const day = document.getElementById('filterDay').value;
+            let records = getRecords();
+            if (day) records = records.filter(r => r.date === day);
+
+            if (records.length === 0) {
+                alert('当前没有数据可导出。');
+                return;
+            }
+
+            // 整理表头和数据（与页面表格一致）
+            const headers = [
+                '区域','管工','焊工','普工',
+                '管道安装(寸)','管道预制(寸)','支架安装(个)',
+                '安装重量(kg)','阀门安装(台)','支架预制(个)',
+                '预制重量(kg)','包含2寸以下(寸)','备注','日期'
+            ];
+            const keys = [
+                'team','guan','han','pu',
+                'pipeInstall','pipePre','bracketInstall',
+                'installWeight','valve','bracketPre',
+                'preWeight','under2','work','date'
+            ];
+
+            // 构造二维数组
+            const aoa = [headers];
+            records.forEach(r => {
+                aoa.push(keys.map(k => r[k] !== undefined ? r[k] : ''));
+            });
+
+            // 加一行合计
+            const sum = {
+                guan: 0, han: 0, pu: 0,
+                pipeInstall: 0, pipePre: 0, bracketInstall: 0, installWeight: 0,
+                valve: 0, bracketPre: 0, preWeight: 0, under2: 0
+            };
+            records.forEach(r => Object.keys(sum).forEach(k => { sum[k] += parseFloat(r[k]) || 0; }));
+            aoa.push([
+                '合计', sum.guan, sum.han, sum.pu,
+                sum.pipeInstall, sum.pipePre, sum.bracketInstall,
+                sum.installWeight, sum.valve, sum.bracketPre,
+                sum.preWeight, sum.under2, '', ''
+            ]);
+
+            // 生成 xlsx
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '工作量统计');
+
+            // 文件名：带日期
+            const fileName = '工作量统计_' + (day || '全部') + '.xlsx';
+            XLSX.writeFile(wb, fileName);
+        }
     </script>
 
     <!-- 离线缓存 -->
