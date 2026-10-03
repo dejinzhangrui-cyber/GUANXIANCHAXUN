@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>焊口查询系统</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, "Microsoft YaHei", Arial; background: #f5f7fa; margin: 0; padding: 12px 12px 100px 12px; color: #333; }
+
+        /* 顶部查询 */
+        .search-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+        .search-bar input { flex: 1; padding: 12px 14px; border: 1px solid #e1e6eb; border-radius: 8px; font-size: 14px; background: #fff; outline: none; }
+        .search-bar input:focus { border-color: #007bff; }
+        .search-bar button { padding: 0 22px; background: #007bff; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; }
+
+        /* 6 个统计卡 */
+        .stat-row { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+        .stat-card { flex: 1; min-width: 90px; background: #fff; padding: 10px 4px; border-radius: 8px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: all 0.2s; }
+        .stat-card .num { font-size: 16px; font-weight: bold; color: #007bff; line-height: 1.2; }
+        .stat-card .lbl { font-size: 11px; color: #888; margin-top: 4px; white-space: nowrap; }
+        .stat-card.size .num { color: #fd7e14; }
+        .stat-card.selected { background: #e8f1ff; border: 2px solid #007bff; box-shadow: 0 2px 8px rgba(0,123,255,0.2); }
+
+        /* 提示区 */
+        .hint { background: #fff; border-radius: 8px; padding: 14px; color: #666; font-size: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 10px; }
+        .hint.center { text-align: center; color: #aaa; padding: 30px 14px; }
+
+        /* 结果卡片（图2风格） */
+        .result-card { background: #fff; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); cursor: pointer; border-left: 4px solid #007bff; }
+        .result-card .line1 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .result-card .weld-no { font-weight: bold; color: #007bff; font-size: 18px; }
+        .result-card .meta { color: #333; font-size: 14px; margin-top: 4px; line-height: 1.6; }
+        .result-card .meta b { color: #333; font-weight: bold; }
+        .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+        .status-welded { background: #e6f4ea; color: #1e7e34; }
+        .status-unwelded { background: #fdecea; color: #c82333; }
+
+        /* 底部管理入口 */
+        .footer { text-align: center; padding: 20px 0; color: #bbb; font-size: 12px; }
+        .footer a { color: #999; text-decoration: none; }
+
+        /* 弹窗 */
+        .modal-mask { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; overflow: auto; }
+        .modal-box { background: #fff; margin: 30px auto; width: 92%; max-width: 800px; border-radius: 10px; padding: 20px; }
+
+        /* 焊口详情 —— 清爽紧凑样式 */
+        .detail-header { font-size: 22px; font-weight: bold; color: #007bff; margin-bottom: 12px; }
+        .detail-line { font-size: 15px; color: #333; margin-bottom: 8px; line-height: 1.5; }
+        .detail-line .dk { color: #333; font-weight: bold; }
+        .detail-line .dv { color: #444; }
+        .detail-line .dv-sep { color: #bbb; margin: 0 6px; }
+        .detail-test-block { margin-top: 16px; padding: 12px 14px; background: #fafafa; border-left: 4px solid #007bff; border-radius: 6px; }
+        .detail-test-block .test-line { font-size: 15px; margin-bottom: 6px; line-height: 1.5; }
+        .detail-test-block .test-line:last-child { margin-bottom: 0; }
+        .detail-test-block .test-name { font-weight: bold; color: #007bff; margin-right: 6px; }
+
+        /* 工作台 */
+        .workbench-wrap { background: #fff; padding: 20px; border-radius: 8px; }
+        .wb-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+        .wb-header h2 { margin: 0; font-size: 20px; }
+        .wb-header .btns button { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 6px; }
+        .btn-blue { background: #007bff; color: #fff; }
+        .btn-orange { background: #fd7e14; color: #fff; }
+        .btn-gray { background: #6c757d; color: #fff; }
+        .btn-green { background: #28a745; color: #fff; }
+        .btn-red { background: #dc3545; color: #fff; }
+
+        .wb-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; }
+        .wb-toolbar input[type="date"] { padding: 6px 10px; border: 1px solid #ccc; border-radius: 5px; }
+        .wb-toolbar button { padding: 6px 14px; background: #6c757d; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+
+        .wb-table-wrap { overflow-x: auto; border: 1px solid #e9ecef; border-radius: 6px; }
+        table.wb-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1500px; }
+        table.wb-table th { background: #f0f4f8; padding: 8px 6px; border-bottom: 2px solid #e1e6eb; white-space: nowrap; font-weight: bold; }
+        table.wb-table td { padding: 6px; border-bottom: 1px solid #eef1f4; white-space: nowrap; }
+        table.wb-table input { width: 100%; border: 1px solid #dee2e6; border-radius: 4px; padding: 6px 8px; font-size: 13px; box-sizing: border-box; min-width: 80px; }
+        table.wb-table .op-btn { padding: 6px 10px; background: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+
+        .wb-add-row { width: 100%; padding: 12px; background: #28a745; color: #fff; border: none; border-radius: 6px; font-size: 15px; cursor: pointer; margin-top: 10px; }
+
+        .wb-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .wb-stat { flex: 1; min-width: 110px; text-align: center; padding: 10px 6px; background: #fff8e1; border-radius: 6px; border: 1px solid #ffe9a8; }
+        .wb-stat .num { font-size: 18px; font-weight: bold; color: #fd7e14; }
+        .wb-stat .lbl { font-size: 12px; color: #888; margin-top: 4px; }
+
+        /* 底部悬浮统计条（两行） */
+        .bottom-bar {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background: #fff;
+            border-top: 2px solid #007bff;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
+            padding: 8px 16px;
+            font-size: 13px;
+            color: #333;
+            z-index: 1000;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px 12px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        .bottom-bar #bottomCount { color: #007bff; font-weight: bold; }
+        .bottom-bar #bottomCount b { font-size: 16px; color: #0056b3; }
+        .bottom-bar #bottomOd { color: #666; word-break: break-all; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部查询 -->
+    <div class="search-bar">
+        <input type="text" id="keyword" placeholder="输入焊缝编号、管线号或焊工号...">
+        <button onclick="doSearch()">查询</button>
+    </div>
+
+    <!-- 6 个统计卡（点击可筛选） -->
+    <div class="stat-row">
+        <div class="stat-card" style="cursor:pointer;" id="cardTotal" onclick="setFilter('all')"><div class="num" id="sTotal">0</div><div class="lbl">总焊口数</div></div>
+        <div class="stat-card size"><div class="num" id="sTotalSize">0</div><div class="lbl">总焊口寸数</div></div>
+        <div class="stat-card" style="cursor:pointer;" id="cardWelded" onclick="setFilter('welded')"><div class="num" id="sWelded">0</div><div class="lbl">已焊接</div></div>
+        <div class="stat-card size" id="cardWeldedSize"><div class="num" id="sWeldedSize">0</div><div class="lbl">已焊寸口</div></div>
+        <div class="stat-card" style="cursor:pointer;" id="cardUnwelded" onclick="setFilter('unwelded')"><div class="num" id="sUnwelded">0</div><div class="lbl">未焊接</div></div>
+        <div class="stat-card size" id="cardUnweldedSize"><div class="num" id="sUnweldedSize">0</div><div class="lbl">未焊寸口</div></div>
+    </div>
+
+    <div id="resultArea">
+        <div class="hint">请输入关键词进行查询，或点击上方“总焊口数 / 已焊接 / 未焊接”进行筛选...</div>
+    </div>
+
+    <div class="footer">
+        <a href="javascript:void(0)" onclick="enterWorkbench()">⚙ 管理入口</a>
+    </div>
+
+    <!-- 焊口详情弹窗 -->
+    <div id="detailModal" class="modal-mask">
+        <div class="modal-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="margin:0;">焊口详情</h3>
+                <button onclick="closeDetail()" class="btn-red" style="padding:6px 12px; border:none; border-radius:5px; cursor:pointer;">关闭</button>
+            </div>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <!-- 密码框 -->
+    <div id="passwordModal" class="modal-mask">
+        <div class="modal-box" style="max-width:400px;">
+            <h3>🔒 管理入口</h3>
+            <p style="color:#666; font-size:13px;">请输入密码</p>
+            <input type="password" id="workbenchPwd" placeholder="请输入密码" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:5px; font-size:15px; margin-bottom:10px;">
+            <button onclick="checkPwd()" class="btn-blue" style="padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">进入</button>
+            <button onclick="closePwd()" class="btn-gray" style="padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">取消</button>
+        </div>
+    </div>
+
+    <!-- 工作台 -->
+    <div id="workbenchModal" class="modal-mask">
+        <div class="workbench-wrap" style="margin:20px auto; width:95%; max-width:1600px;">
+            <div class="wb-header">
+                <h2>📊 控制台</h2>
+                <div class="btns">
+                    <button class="btn-orange" onclick="exportWorkbench()">📤 导出 Excel</button>
+                    <button class="btn-gray" onclick="closeWorkbench()">退出控制台</button>
+                </div>
+            </div>
+
+            <div class="wb-toolbar">
+                <span>日期筛选：</span>
+                <input type="date" id="wbDateStart">
+                <span>~</span>
+                <input type="date" id="wbDateEnd">
+                <button onclick="clearWbFilter()">清除筛选</button>
+                <span style="margin-left:20px; color:#007bff; font-weight:bold;">🔁 统一日期：</span>
+                <input type="date" id="wbBatchDate">
+                <button onclick="batchSetDate()" style="background:#007bff;">应用到当前所有行</button>
+            </div>
+
+            <div class="wb-table-wrap">
+                <table class="wb-table" id="wbTable">
+                    <thead>
+                        <tr>
+                            <th>区域</th>
+                            <th>管工</th>
+                            <th>焊工</th>
+                            <th>普工</th>
+                            <th>管道安装(寸)</th>
+                            <th>管道预制(寸)</th>
+                            <th>支架安装(个)</th>
+                            <th>安装重量(kg)</th>
+                            <th>阀门安装(台)</th>
+                            <th>支架预制(个)</th>
+                            <th>预制重量(kg)</th>
+                            <th>包含2寸以下(寸)</th>
+                            <th>备注</th>
+                            <th>日期</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wbBody"></tbody>
+                </table>
+            </div>
+
+            <button class="wb-add-row" onclick="wbAddRow()">➕ 新增一行记录</button>
+
+            <div class="wb-stats" id="wbStats">
+                <div class="wb-stat"><div class="num" id="w1">0</div><div class="lbl">管工</div></div>
+                <div class="wb-stat"><div class="num" id="w2">0</div><div class="lbl">焊工</div></div>
+                <div class="wb-stat"><div class="num" id="w3">0</div><div class="lbl">普工</div></div>
+                <div class="wb-stat"><div class="num" id="w4">0.00</div><div class="lbl">管道安装(寸)</div></div>
+                <div class="wb-stat"><div class="num" id="w5">0.00</div><div class="lbl">管道预制(寸)</div></div>
+                <div class="wb-stat"><div class="num" id="w6">0</div><div class="lbl">支架安装(个)</div></div>
+                <div class="wb-stat"><div class="num" id="w7">0.00</div><div class="lbl">安装重量(kg)</div></div>
+                <div class="wb-stat"><div class="num" id="w8">0</div><div class="lbl">阀门安装(台)</div></div>
+                <div class="wb-stat"><div class="num" id="w9">0</div><div class="lbl">支架预制(个)</div></div>
+                <div class="wb-stat"><div class="num" id="w10">0.00</div><div class="lbl">预制重量(kg)</div></div>
+                <div class="wb-stat"><div class="num" id="w11">0.00</div><div class="lbl">包含2寸以下(寸)</div></div>
+                <div class="wb-stat" style="min-width:200px; flex:2; background:#e8f4fd; border-color:#c8e3f8;">
+                    <div class="num" id="w12" style="font-size:13px; color:#333; line-height:1.4; word-break:break-all; text-align:left;">-</div>
+                    <div class="lbl">备注汇总</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部悬浮统计条（两行） -->
+    <div class="bottom-bar" id="bottomBar" style="display:none;">
+        <div style="width:100%;">
+            <span id="bottomCount">📋 共 0 条</span>
+        </div>
+        <div style="width:100%;">
+            <span id="bottomOd">📊 外径：-</span>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+
+    <script>
+        // PWA Service Worker 注册
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./service-worker.js')
+                .then(function() { console.log('✅ Service Worker 注册成功'); })
+                .catch(function(err) { console.log('❌ Service Worker 注册失败:', err); });
+        }
+
+        // 读取本地新增焊口
+        (function loadLocalData() {
+            try {
+                var local = localStorage.getItem('localWelds');
+                if (local) {
+                    var arr = JSON.parse(local);
+                    arr.forEach(function(item){ weldData.push(item); });
+                }
+            } catch(e) {}
+        })();
+
+        // 当前筛选状态
+        var currentFilter = 'all';
+
+        function setFilter(type) {
+            currentFilter = type;
+            document.getElementById('cardTotal').classList.remove('selected');
+            document.getElementById('cardWelded').classList.remove('selected');
+            document.getElementById('cardUnwelded').classList.remove('selected');
+            document.getElementById('cardWeldedSize').classList.remove('selected');
+            document.getElementById('cardUnweldedSize').classList.remove('selected');
+
+            if (type === 'all') document.getElementById('cardTotal').classList.add('selected');
+            if (type === 'welded') {
+                document.getElementById('cardWelded').classList.add('selected');
+                document.getElementById('cardWeldedSize').classList.add('selected');
+            }
+            if (type === 'unwelded') {
+                document.getElementById('cardUnwelded').classList.add('selected');
+                document.getElementById('cardUnweldedSize').classList.add('selected');
+            }
+            doSearch();
+        }
+
+        window.onload = function() {
+            if (typeof weldData === "undefined") {
+                document.getElementById('resultArea').innerHTML =
+                    "<div class='hint center'>❌ 数据未加载：请检查 data.js 文件是否存在，或检查数据格式是否正确。</div>";
+                return;
+            }
+            if (!Array.isArray(weldData) || weldData.length === 0) {
+                document.getElementById('resultArea').innerHTML =
+                    "<div class='hint center'>⚠️ data.js 已加载，但焊口数据为空（weldData 数组长度为 0）。</div>";
+                return;
+            }
+            document.getElementById('keyword').focus();
+            setFilter('all');
+        };
+
+        // 全量统计
+        function updateStatsAll() {
+            var totalSize = 0;
+            weldData.forEach(function(item){
+                totalSize += parseFloat(item["尺寸"]) || 0;
+            });
+            document.getElementById('sTotal').innerText = weldData.length;
+            document.getElementById('sTotalSize').innerText = totalSize.toFixed(2);
+        }
+
+        // 筛选结果统计
+        function updateStats(filteredData) {
+            var welded = 0, unwelded = 0;
+            var weldedSize = 0, unweldedSize = 0;
+
+            filteredData.forEach(function(item){
+                var size = parseFloat(item["尺寸"]) || 0;
+                if (item["焊接日期"] && item["焊接日期"] !== "") {
+                    welded++;
+                    weldedSize += size;
+                } else {
+                    unwelded++;
+                    unweldedSize += size;
+                }
+            });
+
+            document.getElementById('sWelded').innerText = welded;
+            document.getElementById('sWeldedSize').innerText = weldedSize.toFixed(2);
+            document.getElementById('sUnwelded').innerText = unwelded;
+            document.getElementById('sUnweldedSize').innerText = unweldedSize.toFixed(2);
+        }
+
+        // 自然排序
+        function naturalCompare(s1, s2) {
+            s1 = (s1 || "").toString().trim().toUpperCase();
+            s2 = (s2 || "").toString().trim().toUpperCase();
+            var m1 = s1.match(/\d+/);
+            var m2 = s2.match(/\d+/);
+            var n1 = m1 ? parseInt(m1[0], 10) : 0;
+            var n2 = m2 ? parseInt(m2[0], 10) : 0;
+            if (n1 !== n2) return n1 - n2;
+            return s1.localeCompare(s2);
+        }
+
+        // 查询
+        function doSearch() {
+            var kw = document.getElementById('keyword').value.trim();
+            var resultArea = document.getElementById('resultArea');
+
+            var kwLower = kw.toLowerCase();
+            var results = weldData.filter(function(item){
+                var isWelded = item["焊接日期"] && item["焊接日期"] !== "";
+                if (currentFilter === 'welded' && !isWelded) return false;
+                if (currentFilter === 'unwelded' && isWelded) return false;
+
+                if (kw === "") return true;
+
+                var p = (item["管线号"] || "").toLowerCase();
+                var w = (item["焊缝编号"] || "").toLowerCase();
+                var wr = (item["焊工号根层"] || "").toLowerCase();
+                var wf = (item["焊工号填充、盖面"] || "").toLowerCase();
+                return p.indexOf(kwLower) > -1 || w.indexOf(kwLower) > -1
+                    || wr.indexOf(kwLower) > -1 || wf.indexOf(kwLower) > -1;
+            });
+
+            results.sort(function(a, b){
+                return naturalCompare(a["焊缝编号"], b["焊缝编号"]);
+            });
+
+            updateStatsAll();
+            updateStats(results);
+
+            // 外径分布统计
+            var sizeCount = {};
+            results.forEach(function(r){
+                var od = (r["外径1"] || "-").toString().trim();
+                if (od === "") od = "-";
+                sizeCount[od] = (sizeCount[od] || 0) + 1;
+            });
+            var odKeys = Object.keys(sizeCount).sort(function(a, b){
+                var n1 = parseFloat(a);
+                var n2 = parseFloat(b);
+                if (!isNaN(n1) && !isNaN(n2)) return n1 - n2;
+                if (!isNaN(n1)) return -1;
+                if (!isNaN(n2)) return 1;
+                return a.localeCompare(b);
+            });
+            var odText = odKeys.map(function(k){
+                return k + "(" + sizeCount[k] + ")";
+            }).join("  ");
+
+            document.getElementById('bottomCount').innerHTML = "📋 共 <b>" + results.length + "</b> 条";
+            document.getElementById('bottomOd').innerHTML = "📊 外径：" + (odText || "-");
+            document.getElementById('bottomBar').style.display = 'flex';
+
+            if (results.length === 0) {
+                resultArea.innerHTML = "<div class='hint center'>没有找到匹配的焊口</div>";
+                return;
+            }
+
+            var html = "";
+
+            for (var i = 0; i < results.length; i++) {
+                var r = results[i];
+                var welded = r["焊接日期"] && r["焊接日期"] !== "";
+                var statusClass = welded ? "status-welded" : "status-unwelded";
+                var statusText = welded ? "已焊接" : "未焊接";
+
+                // 炉批号1 / 炉批号2
+                var lu1 = r["炉批号1"] || "";
+                var lu2 = r["炉批号2"] || "";
+                var luText;
+                if (lu1 && lu2) luText = lu1 + " / " + lu2;
+                else if (lu1) luText = lu1;
+                else if (lu2) luText = lu2;
+                else luText = "-";
+
+                html += "<div class='result-card' onclick='showDetail(" + weldData.indexOf(r) + ")'>";
+
+                // 标题行
+                html += "<div class='line1'>";
+                html += "<span class='weld-no'>焊口：" + (r["焊缝编号"] || "-") + "</span>";
+                html += "<span class='status " + statusClass + "'>" + statusText + "</span>";
+                html += "</div>";
+
+                // 逐行标签式
+                html += "<div class='meta'><b>归属队伍：</b>" + (r["施工承包商"] || "-") + "</div>";
+                html += "<div class='meta'><b>管线号：</b>" + (r["管线号"] || "-") + "</div>";
+                html += "<div class='meta'><b>图号：</b>" + (r["图纸号"] || "-") + "</div>";
+                html += "<div class='meta'><b>区域：</b>" + (r["区域"] || "-") + " ｜ <b>介质：</b>" + (r["介质"] || "-") + "</div>";
+                html += "<div class='meta'><b>规格：</b>" + (r["外径1"] || "-") + "×" + (r["厚度1"] || "-") + "</div>";
+                html += "<div class='meta'><b>焊接寸口(尺寸)：</b>" + (r["尺寸"] || "-") + "</div>";
+                html += "<div class='meta'><b>材质：</b>" + (r["母材材质1"] || "-") + " ｜ <b>炉批号：</b>" + luText + "</div>";
+                html += "<div class='meta'><b>焊工：</b>" + (r["焊工号根层"] || "-") + " ｜ <b>焊接日期：</b>" + (welded ? r["焊接日期"] : "未焊接") + "</div>";
+
+                // VT / RT / PT
+                html += "<div class='meta' style='margin-top:8px; padding-top:8px; border-top:1px dashed #eee;'>";
+                html += "<b>VT：</b>" + (r["VT报告号"] || "未委托") + " | " + (r["VT检测结果"] || "无") + " | " + (r["VT报告日期"] || "无");
+                html += " &nbsp;&nbsp; <b>RT：</b>" + (r["RT报告号"] || "未委托") + " | " + (r["RT检测结果"] || "无") + " | " + (r["RT报告日期"] || "无");
+                html += " &nbsp;&nbsp; <b>PT：</b>" + (r["PT报告号"] || "未委托") + " | " + (r["PT检测结果"] || "无") + " | " + (r["PT报告日期"] || "无");
+                html += "</div>";
+
+                html += "</div>";
+            }
+            resultArea.innerHTML = html;
+        }
+
+        // 焊口详情
+        function showDetail(index) {
+            var r = weldData[index];
+            if (!r) return;
+            var welded = r["焊接日期"] && r["焊接日期"] !== "";
+
+            var html = "";
+            html += "<div class='detail-header'>焊口：" + (r["焊缝编号"] || "-") + "</div>";
+            html += line("归属队伍", r["施工承包商"]);
+            html += line("管线号", r["管线号"]);
+            html += line("图号", r["图纸号"]);
+            html += "<div class='detail-line'>";
+            html += "<span class='dk'>区域：</span><span class='dv'>" + (r["区域"] || "-") + "</span>";
+            html += "<span class='dv-sep'>|</span>";
+            html += "<span class='dk'>介质：</span><span class='dv'>" + (r["介质"] || "-") + "</span>";
+            html += "</div>";
+            html += line("规格", (r["外径1"] || "-") + "×" + (r["厚度1"] || "-"));
+            html += line("焊接寸口(尺寸)", r["尺寸"]);
+
+            var lu1 = r["炉批号1"] || "";
+            var lu2 = r["炉批号2"] || "";
+            var luText;
+            if (lu1 && lu2) luText = lu1 + " / " + lu2;
+            else if (lu1) luText = lu1;
+            else if (lu2) luText = lu2;
+            else luText = "-";
+
+            html += "<div class='detail-line'>";
+            html += "<span class='dk'>材质：</span><span class='dv'>" + (r["母材材质1"] || "-") + "</span>";
+            html += "<span class='dv-sep'>|</span>";
+            html += "<span class='dk'>炉批号：</span><span class='dv'>" + luText + "</span>";
+            html += "</div>";
+
+            html += "<div class='detail-line'>";
+            html += "<span class='dk'>焊工：</span><span class='dv'>" + (r["焊工号根层"] || "-") + "</span>";
+            html += "<span class='dv-sep'>|</span>";
+            html += "<span class='dk'>焊接日期：</span><span class='dv'>" + (welded ? r["焊接日期"] : "未焊接") + "</span>";
+            html += "</div>";
+
+            var testBlock = "<div class='detail-test-block'>";
+            testBlock += "<div class='test-line'><span class='test-name'>PT：</span>";
+            testBlock += (r["PT报告号"] || "未委托") + " | " + (r["PT检测结果"] || "无") + " | " + (r["PT报告日期"] || "无");
+            testBlock += "</div>";
+            testBlock += "<div class='test-line'><span class='test-name'>RT：</span>";
+            testBlock += (r["RT报告号"] || "未委托") + " | " + (r["RT检测结果"] || "无") + " | " + (r["RT报告日期"] || "无");
+            testBlock += "</div>";
+            testBlock += "<div class='test-line'><span class='test-name'>VT：</span>";
+            testBlock += (r["VT报告号"] || "未委托") + " | " + (r["VT检测结果"] || "无") + " | " + (r["VT报告日期"] || "无");
+            testBlock += "</div>";
+            testBlock += "</div>";
+            html += testBlock;
+
+            document.getElementById('detailContent').innerHTML = html;
+            document.getElementById('detailModal').style.display = 'block';
+        }
+
+        function line(k, v) {
+            return "<div class='detail-line'><span class='dk'>" + k + "：</span><span class='dv'>" + (v || "-") + "</span></div>";
+        }
+
+        function closeDetail() { document.getElementById('detailModal').style.display = 'none'; }
+
+        // 管理入口
+        function enterWorkbench() {
+            document.getElementById('passwordModal').style.display = 'block';
+            document.getElementById('workbenchPwd').value = '';
+            setTimeout(function(){ document.getElementById('workbenchPwd').focus(); }, 100);
+        }
+        function checkPwd() {
+            if (document.getElementById('workbenchPwd').value === '370983') {
+                document.getElementById('passwordModal').style.display = 'none';
+                openWorkbench();
+            } else {
+                alert('密码错误！');
+                document.getElementById('workbenchPwd').value = '';
+            }
+        }
+        function closePwd() { document.getElementById('passwordModal').style.display = 'none'; }
+
+        // 工作台
+        var wbData = [];
+        function loadWbData() {
+            try {
+                var saved = localStorage.getItem('workbenchData');
+                if (saved) wbData = JSON.parse(saved) || [];
+            } catch(e) { wbData = []; }
+        }
+        function saveWbData() { try { localStorage.setItem('workbenchData', JSON.stringify(wbData)); } catch(e){} }
+
+        function openWorkbench() {
+            loadWbData();
+            renderWbTable();
+            updateWbStats();
+            document.getElementById('workbenchModal').style.display = 'block';
+        }
+        function closeWorkbench() { document.getElementById('workbenchModal').style.display = 'none'; }
+
+        function renderWbTable() {
+            var tbody = document.getElementById('wbBody');
+            var start = document.getElementById('wbDateStart').value;
+            var end = document.getElementById('wbDateEnd').value;
+            var rows = wbData.filter(function(r){
+                if (start && (!r["日期"] || r["日期"] < start)) return false;
+                if (end && (!r["日期"] || r["日期"] > end)) return false;
+                return true;
+            });
+            if (rows.length === 0) {
+                tbody.innerHTML = "<tr><td colspan='15' style='text-align:center; color:#aaa; padding:20px;'>暂无数据，点击下方“新增一行记录”添加</td></tr>";
+                return;
+            }
+            var html = "";
+            rows.forEach(function(r){
+                var i = wbData.indexOf(r);
+                html += "<tr>";
+                html += "<td><input value='" + esc(r["区域"] || "") + "' onchange='wbEdit(" + i + ",\"区域\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["管工"] || "") + "' onchange='wbEdit(" + i + ",\"管工\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["焊工"] || "") + "' onchange='wbEdit(" + i + ",\"焊工\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["普工"] || "") + "' onchange='wbEdit(" + i + ",\"普工\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["管道安装"] || "") + "' onchange='wbEdit(" + i + ",\"管道安装\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["管道预制"] || "") + "' onchange='wbEdit(" + i + ",\"管道预制\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["支架安装"] || "") + "' onchange='wbEdit(" + i + ",\"支架安装\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["安装重量"] || "") + "' onchange='wbEdit(" + i + ",\"安装重量\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["阀门安装"] || "") + "' onchange='wbEdit(" + i + ",\"阀门安装\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["支架预制"] || "") + "' onchange='wbEdit(" + i + ",\"支架预制\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["预制重量"] || "") + "' onchange='wbEdit(" + i + ",\"预制重量\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["包含2寸以下"] || "") + "' onchange='wbEdit(" + i + ",\"包含2寸以下\", this.value)'></td>";
+                html += "<td><input value='" + esc(r["备注"] || "") + "' onchange='wbEdit(" + i + ",\"备注\", this.value)'></td>";
+                html += "<td><input type='date' value='" + esc(r["日期"] || "") + "' onchange='wbEdit(" + i + ",\"日期\", this.value)'></td>";
+                html += "<td><button class='op-btn' onclick='wbDelete(" + i + ")'>删除</button></td>";
+                html += "</tr>";
+            });
+            tbody.innerHTML = html;
+        }
+
+        function esc(s) {
+            return (s || "").toString().replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        }
+        function wbEdit(idx, key, value) { wbData[idx][key] = value; saveWbData(); updateWbStats(); }
+        function wbDelete(idx) {
+            if (confirm('确定删除这一行吗？')) {
+                wbData.splice(idx, 1); saveWbData(); renderWbTable(); updateWbStats();
+            }
+        }
+        function wbAddRow() {
+            wbData.push({
+                "区域":"","管工":"","焊工":"","普工":"",
+                "管道安装":"","管道预制":"","支架安装":"","安装重量":"",
+                "阀门安装":"","支架预制":"","预制重量":"","包含2寸以下":"",
+                "备注":"","日期":today()
+            });
+            saveWbData(); renderWbTable(); updateWbStats();
+        }
+
+        function batchSetDate() {
+            var d = document.getElementById('wbBatchDate').value;
+            if (!d) { alert('请先选择一个日期'); return; }
+            var start = document.getElementById('wbDateStart').value;
+            var end = document.getElementById('wbDateEnd').value;
+            var count = 0;
+            wbData.forEach(function(r){
+                if (start && (!r["日期"] || r["日期"] < start)) return;
+                if (end && (!r["日期"] || r["日期"] > end)) return;
+                r["日期"] = d;
+                count++;
+            });
+            if (count === 0) { alert('当前筛选范围内没有可修改的行'); return; }
+            saveWbData();
+            renderWbTable();
+            updateWbStats();
+            alert('已将 ' + count + ' 行日期统一改为：' + d);
+        }
+
+        function updateWbStats() {
+            var start = document.getElementById('wbDateStart').value;
+            var end = document.getElementById('wbDateEnd').value;
+            var rows = wbData.filter(function(r){
+                if (start && (!r["日期"] || r["日期"] < start)) return false;
+                if (end && (!r["日期"] || r["日期"] > end)) return false;
+                return true;
+            });
+            var sum = function(key){
+                var s = 0;
+                rows.forEach(function(r){ var v = parseFloat(r[key]); if (!isNaN(v)) s += v; });
+                return s;
+            };
+            document.getElementById('w1').innerText = sum("管工");
+            document.getElementById('w2').innerText = sum("焊工");
+            document.getElementById('w3').innerText = sum("普工");
+            document.getElementById('w4').innerText = sum("管道安装").toFixed(2);
+            document.getElementById('w5').innerText = sum("管道预制").toFixed(2);
+            document.getElementById('w6').innerText = sum("支架安装");
+            document.getElementById('w7').innerText = sum("安装重量").toFixed(2);
+            document.getElementById('w8').innerText = sum("阀门安装");
+            document.getElementById('w9').innerText = sum("支架预制");
+            document.getElementById('w10').innerText = sum("预制重量").toFixed(2);
+            document.getElementById('w11').innerText = sum("包含2寸以下").toFixed(2);
+
+            var notes = [];
+            rows.forEach(function(r){
+                var note = (r["备注"] || "").toString().trim();
+                if (note !== "") notes.push(note);
+            });
+            document.getElementById('w12').innerText = notes.length > 0 ? notes.join("，") : "-";
+        }
+
+        function clearWbFilter() {
+            document.getElementById('wbDateStart').value = "";
+            document.getElementById('wbDateEnd').value = "";
+            renderWbTable(); updateWbStats();
+        }
+
+        document.addEventListener('DOMContentLoaded', function(){
+            document.getElementById('wbDateStart').addEventListener('change', function(){ renderWbTable(); updateWbStats(); });
+            document.getElementById('wbDateEnd').addEventListener('change', function(){ renderWbTable(); updateWbStats(); });
+            document.getElementById('keyword').addEventListener('keydown', function(e){ if (e.key === 'Enter') doSearch(); });
+            document.getElementById('workbenchPwd').addEventListener('keydown', function(e){ if (e.key === 'Enter') checkPwd(); });
+        });
+
+        function exportWorkbench() {
+            if (!wbData || wbData.length === 0) { alert('没有可导出的数据'); return; }
+            var headers = ["区域","管工","焊工","普工","管道安装","管道预制","支架安装","安装重量","阀门安装","支架预制","预制重量","包含2寸以下","备注","日期"];
+            var csv = headers.join(",") + "\n";
+            wbData.forEach(function(r){
+                var row = headers.map(function(h){
+                    var v = (r[h] || "").toString().replace(/"/g, '""');
+                    if (v.indexOf(",") > -1 || v.indexOf("\n") > -1) v = '"' + v + '"';
+                    return v;
+                });
+                csv += row.join(",") + "\n";
+            });
+            var blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url; a.download = "工作台数据_" + today() + ".csv";
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        }
+        function today() { return new Date().toISOString().slice(0,10); }
+    </script>
+
+</body>
+</html>
