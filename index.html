@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#07C160">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    <title>焊口查询</title>
+    <style>
+        /* ============================================================
+           微信风格绿色主题（参考「管线查询」APP 设计系统）
+           含深色模式 + 字号缩放
+           ============================================================ */
+        :root {
+            --bg-page: #EDEDED;
+            --bg-card: #FFFFFF;
+            --bg-input: #F7F7F7;
+            --bg-hover: #F2F2F2;
+            --bg-nav: #EDEDED;
+            --bg-tab: #F7F7F7;
+            --bg-dialog: #FFFFFF;
+            --bg-toast: rgba(0,0,0,0.8);
+            --text-primary: #000000;
+            --text-secondary: #7F7F7F;
+            --text-tertiary: #AAB7C9;
+            --text-value: #0b1b33;
+            --text-inverse: #FFFFFF;
+            --border-light: #E5E5E5;
+            --border-inner: #F2F2F2;
+            --green-primary: #07C160;
+            --green-bg: #d1fae5;
+            --green-text: #065f46;
+            --red-bg: #fee2e2;
+            --red-text: #991b1b;
+            --amber-bg: #fef3c7;
+            --amber-text: #92400e;
+            --purple-bg: #ede9fe;
+            --purple-text: #5b21b6;
+            --font-scale: 1;
+            --shadow: 0 20px 60px rgba(0,0,0,0.3);
+            --highlight-bg: #FEF3C7;
+            --highlight-border: #F59E0B;
+        }
+
+        /* 深色模式 */
+        body.dark-mode {
+            --bg-page: #121212;
+            --bg-card: #1E1E1E;
+            --bg-input: #2C2C2C;
+            --bg-hover: #2C2C2C;
+            --bg-nav: #1A1A1A;
+            --bg-tab: #1A1A1A;
+            --bg-dialog: #2C2C2C;
+            --bg-toast: rgba(255,255,255,0.15);
+            --text-primary: #E0E0E0;
+            --text-secondary: #A0A0A0;
+            --text-tertiary: #6B6B6B;
+            --text-value: #E0E0E0;
+            --text-inverse: #121212;
+            --border-light: #333333;
+            --border-inner: #2A2A2A;
+            --green-primary: #34D399;
+            --green-bg: #1A3A2E;
+            --green-text: #A7F3D0;
+            --red-bg: #3A1A1A;
+            --red-text: #FCA5A5;
+            --amber-bg: #3A2E1A;
+            --amber-text: #FCD34D;
+            --purple-bg: #2A1A3A;
+            --purple-text: #C4B5FD;
+            --highlight-bg: #3A2E1A;
+            --highlight-border: #F59E0B;
+            --shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+
+        * {
+            margin: 0; padding: 0; box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+            font-size: calc(16px * var(--font-scale));
+        }
+
+        body { background: var(--bg-page); color: var(--text-primary); -webkit-tap-highlight-color: transparent; }
+
+        /* ============ 顶部导航栏 ============ */
+        .navbar {
+            background: var(--bg-nav);
+            padding: 12px 16px;
+            text-align: center;
+            position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid var(--border-light);
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .navbar h1 { font-size: calc(17px * var(--font-scale)); font-weight: 600; color: var(--text-primary); }
+        .navbar .right-btn {
+            position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+            font-size: calc(20px * var(--font-scale)); color: var(--text-primary); background: none; border: none; cursor: pointer;
+            padding: 4px 8px;
+        }
+        .navbar .status-badge {
+            position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+            font-size: calc(11px * var(--font-scale)); padding: 3px 10px; border-radius: 20px; font-weight: 500;
+        }
+        .navbar .status-badge.local { background: var(--green-bg); color: var(--green-text); }
+
+        /* ============ 内容区 ============ */
+        .app { padding-bottom: 96px; }
+        .content { padding: 8px 0; }
+        .page-mode { display: none; }
+        .page-mode.active { display: block; }
+
+        /* ============ 搜索框 ============ */
+        .search-box { display: flex; gap: 8px; padding: 12px 16px; background: var(--bg-card); border-bottom: 1px solid var(--border-light); transition: background 0.2s, border-color 0.2s; }
+        .search-box input { flex: 1; padding: 12px 14px; border: 1px solid var(--border-light); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font-size: calc(15px * var(--font-scale)); outline: none; min-width: 0; transition: background 0.2s, border-color 0.2s, color 0.2s; }
+        .search-box input:focus { border-color: var(--green-primary); }
+        .search-box button { padding: 12px 20px; background: var(--green-primary); color: #fff; border: none; border-radius: 8px; font-size: calc(15px * var(--font-scale)); font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .search-box button:active { transform: scale(0.97); }
+
+        /* ============ 快捷前缀按钮（支架/阀门）============ */
+        .quick { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 4px; }
+        .quick button { flex: 1 1 auto; min-width: 64px; padding: 9px 6px; background: var(--bg-card); color: var(--green-primary); border: 1px solid var(--border-light); border-radius: 6px; font-size: calc(13px * var(--font-scale)); cursor: pointer; transition: background 0.2s, border-color 0.2s, color 0.2s; }
+        .quick button:active { background: var(--green-bg); }
+        .result-card .rc-row { font-size: calc(13px * var(--font-scale)); margin-bottom: 4px; line-height: 1.5; word-break: break-all; }
+        .result-card .rc-row b { color: var(--text-secondary); margin-right: 4px; }
+
+        /* ============ 统计卡 ============ */
+        .stat-grid { display: flex; gap: 8px; padding: 12px 16px; flex-wrap: wrap; }
+        .stat-card { flex: 1; min-width: 88px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 10px; padding: 12px 6px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04); cursor: pointer; transition: all 0.15s; }
+        .stat-card:active { transform: scale(0.98); }
+        .stat-card .num { font-size: calc(18px * var(--font-scale)); font-weight: 700; color: var(--green-primary); line-height: 1.2; }
+        .stat-card.size .num { color: var(--amber-text); }
+        .stat-card.selected { border-color: var(--green-primary); background: var(--green-bg); }
+        .stat-card .lbl { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); margin-top: 4px; }
+
+        /* ============ 查询小结 ============ */
+        .query-summary { padding: 6px 16px 2px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+        .query-summary b { color: var(--green-primary); }
+
+        /* ============ 结果卡 ============ */
+        .result-card { background: var(--bg-card); border-radius: 10px; padding: 14px 16px; margin: 10px 16px; border-left: 4px solid var(--green-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+        .result-card:active { background: var(--bg-hover); }
+        .result-card .rc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .result-card .rc-no { font-weight: 700; color: var(--green-primary); font-size: calc(17px * var(--font-scale)); }
+        .rc-status { font-size: calc(12px * var(--font-scale)); padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+        .rc-status.welded { background: var(--green-bg); color: var(--green-text); }
+        .rc-status.unwelded { background: var(--red-bg); color: var(--red-text); }
+        .rc-meta { font-size: calc(13px * var(--font-scale)); color: var(--text-primary); margin-top: 4px; line-height: 1.6; }
+        .rc-meta b { color: var(--text-secondary); font-weight: 600; }
+        .rc-test { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-light); font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+        .rc-test b { color: var(--green-text); }
+
+        .hint { padding: 40px 16px; text-align: center; color: var(--text-tertiary); font-size: calc(14px * var(--font-scale)); line-height: 1.6; }
+        .hint .big { font-size: calc(30px * var(--font-scale)); display: block; margin-bottom: 10px; }
+
+        /* ============ 统计页（仪表盘）============ */
+        .dash-card { background: var(--bg-card); border-radius: 12px; padding: 16px; margin: 10px 16px; border: 1px solid var(--border-light); transition: background 0.2s, border-color 0.2s; }
+        .dash-title { font-size: calc(14px * var(--font-scale)); color: var(--text-secondary); margin-bottom: 12px; font-weight: 600; }
+        .dash-grid3 { display: flex; gap: 10px; }
+        .dash-grid3 .cell { flex: 1; text-align: center; }
+        .dash-grid3 .cell .v { font-size: calc(22px * var(--font-scale)); font-weight: 700; color: var(--green-primary); }
+        .dash-grid3 .cell .v.amber { color: var(--amber-text); }
+        .dash-grid3 .cell .v.red { color: var(--red-text); }
+        .dash-grid3 .cell .l { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); margin-top: 4px; }
+        .progress { height: 10px; background: var(--bg-input); border-radius: 6px; overflow: hidden; margin-top: 12px; transition: background 0.2s; }
+        .progress .bar { height: 100%; background: var(--green-primary); transition: width 0.3s; }
+        .od-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+        .od-chip { background: var(--bg-input); border-radius: 20px; padding: 6px 12px; font-size: calc(13px * var(--font-scale)); color: var(--text-primary); transition: background 0.2s, color 0.2s; }
+
+        /* ============ 控制台入口 / 工作台 ============ */
+        .console-gate { margin: 40px 16px; background: var(--bg-card); border-radius: 12px; padding: 24px 20px; text-align: center; border: 1px solid var(--border-light); transition: background 0.2s, border-color 0.2s; }
+        .console-gate h3 { font-size: calc(18px * var(--font-scale)); color: var(--text-primary); margin-bottom: 6px; }
+        .console-gate p { color: var(--text-secondary); font-size: calc(13px * var(--font-scale)); margin-bottom: 14px; }
+        .console-gate input { width: 100%; padding: 12px; border: 1px solid var(--border-light); border-radius: 8px; font-size: calc(15px * var(--font-scale)); margin-bottom: 12px; background: var(--bg-input); color: var(--text-primary); text-align: center; outline: none; transition: background 0.2s, border-color 0.2s, color 0.2s; }
+        .console-gate input:focus { border-color: var(--green-primary); }
+        .console-gate button { width: 100%; padding: 12px; background: var(--green-primary); color: #fff; border: none; border-radius: 8px; font-size: calc(15px * var(--font-scale)); font-weight: 600; cursor: pointer; }
+
+        .wb-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px 16px; }
+        .wb-header h2 { margin: 0; font-size: calc(18px * var(--font-scale)); color: var(--text-primary); }
+        .wb-header .btns button { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: calc(13px * var(--font-scale)); margin-left: 6px; color: #fff; }
+        .btn-green { background: var(--green-primary); }
+        .btn-gray { background: #6c757d; }
+        .btn-red { background: #dc3545; }
+        .wb-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); }
+        .wb-toolbar input[type=date] { padding: 6px 10px; border: 1px solid var(--border-light); border-radius: 5px; background: var(--bg-input); color: var(--text-primary); }
+        .wb-toolbar button { padding: 6px 14px; background: var(--bg-hover); color: var(--text-primary); border: none; border-radius: 5px; cursor: pointer; }
+        .wb-table-wrap { overflow-x: auto; margin: 0 16px; border: 1px solid var(--border-light); border-radius: 6px; transition: background 0.2s, border-color 0.2s; }
+        table.wb-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--font-scale)); min-width: 1400px; }
+        table.wb-table th { background: var(--bg-input); padding: 8px 6px; border-bottom: 2px solid var(--border-light); white-space: nowrap; font-weight: 700; color: var(--text-primary); }
+        table.wb-table td { padding: 6px; border-bottom: 1px solid var(--border-inner); white-space: nowrap; }
+        table.wb-table input { width: 100%; border: 1px solid var(--border-light); border-radius: 4px; padding: 6px 8px; font-size: calc(12px * var(--font-scale)); box-sizing: border-box; min-width: 80px; background: var(--bg-card); color: var(--text-primary); }
+        .wb-add-row { width: calc(100% - 32px); margin: 12px 16px; padding: 12px; background: var(--green-primary); color: #fff; border: none; border-radius: 8px; font-size: calc(15px * var(--font-scale)); font-weight: 600; cursor: pointer; }
+        .wb-stats { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px 0; }
+        .wb-stat { flex: 1; min-width: 100px; text-align: center; padding: 10px 6px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 8px; transition: background 0.2s, border-color 0.2s; }
+        .wb-stat .num { font-size: calc(16px * var(--font-scale)); font-weight: 700; color: var(--green-primary); }
+        .wb-stat .lbl { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); margin-top: 4px; }
+        .wb-stat.wide { flex: 2; min-width: 200px; }
+        .wb-stat.wide .num { font-size: calc(12px * var(--font-scale)); color: var(--text-primary); line-height: 1.4; word-break: break-all; text-align: left; }
+
+        /* ============ 关于页 ============ */
+        .about-logo { text-align: center; padding: 22px 16px 6px; }
+        .about-logo .logo-badge { display: inline-flex; width: 64px; height: 64px; border-radius: 16px; background: var(--green-primary); color: #fff; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; box-shadow: 0 6px 18px rgba(7,193,96,0.35); }
+        .about-logo .app-name { font-size: calc(18px * var(--font-scale)); font-weight: 700; margin-top: 10px; color: var(--text-primary); }
+        .about-logo .app-sub { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); margin-top: 2px; }
+        .about-section { background: var(--bg-card); border-radius: 12px; padding: 16px; margin: 10px 16px; border: 1px solid var(--border-light); transition: background 0.2s, border-color 0.2s; }
+        .about-section h3 { font-size: calc(15px * var(--font-scale)); color: var(--green-primary); margin-bottom: 8px; }
+        .about-section p, .about-section li { font-size: calc(13px * var(--font-scale)); color: var(--text-primary); line-height: 1.7; }
+        .about-section ul { padding-left: 18px; }
+
+        /* ============ 底部 Tab ============ */
+        .bottom-tabs {
+            position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+            max-width: 480px; width: 100%;
+            background: var(--bg-tab); display: flex;
+            border-top: 1px solid var(--border-light);
+            padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+            z-index: 200; transition: background 0.2s, border-color 0.2s;
+        }
+        .bottom-tabs .tab-item {
+            flex: 1; background: none; border: none; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 3px; padding: 4px 0;
+            cursor: pointer; color: var(--text-secondary); transition: color 0.15s; -webkit-tap-highlight-color: transparent; position: relative;
+        }
+        .bottom-tabs .tab-item svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s; }
+        .bottom-tabs .tab-item .tab-label { font-size: calc(10px * var(--font-scale)); line-height: 1; font-weight: 500; }
+        .bottom-tabs .tab-item.active { color: var(--green-primary); }
+        .bottom-tabs .tab-item.active .tab-label { font-weight: 600; }
+        .bottom-tabs .tab-item:active svg { transform: scale(0.9); }
+        .bottom-tabs .tab-item .badge { position: absolute; top: 2px; right: 50%; margin-right: -22px; background: #FA5151; color: white; font-size: calc(9px * var(--font-scale)); min-width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 8px; padding: 0 4px; font-weight: 500; }
+
+        /* ============ 通用弹窗 ============ */
+        .dialog-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; }
+        .dialog-overlay.active { display: flex; }
+        .dialog { background: var(--bg-dialog); border-radius: 12px; padding: 22px 20px; max-width: 520px; width: 92%; box-shadow: var(--shadow); transition: background 0.2s; max-height: 86vh; overflow-y: auto; }
+        .dialog h3 { font-size: calc(17px * var(--font-scale)); color: var(--text-primary); margin-bottom: 12px; }
+        .dialog .dlg-close { float: right; background: var(--bg-hover); border: none; width: 32px; height: 32px; border-radius: 6px; font-size: calc(16px * var(--font-scale)); cursor: pointer; color: var(--text-secondary); }
+        .dialog p { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); margin-bottom: 12px; line-height: 1.6; }
+
+        /* 焊口详情 */
+        .detail-header { font-size: calc(20px * var(--font-scale)); font-weight: 700; color: var(--green-primary); margin-bottom: 12px; }
+        .detail-line { font-size: calc(14px * var(--font-scale)); margin-bottom: 8px; line-height: 1.5; }
+        .detail-line .dk { color: var(--text-secondary); font-weight: 600; }
+        .detail-line .dv { color: var(--text-primary); }
+        .detail-line .sep { color: var(--border-light); margin: 0 6px; }
+        .detail-test-block { margin-top: 14px; padding: 12px 14px; background: var(--bg-input); border-left: 4px solid var(--green-primary); border-radius: 6px; transition: background 0.2s; }
+        .detail-test-block .test-line { font-size: calc(14px * var(--font-scale)); margin-bottom: 6px; line-height: 1.5; }
+        .detail-test-block .test-name { font-weight: 700; color: var(--green-primary); margin-right: 6px; }
+
+        /* ============ 设置面板 ============ */
+        .settings-panel { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: none; justify-content: center; align-items: flex-end; padding: 0 12px 12px; }
+        .settings-panel.active { display: flex; }
+        .settings-inner { background: var(--bg-dialog); border-radius: 12px 12px 8px 8px; padding: 24px 20px 30px; max-width: 480px; width: 100%; box-shadow: var(--shadow); max-height: 80vh; overflow-y: auto; transition: background 0.2s; }
+        .settings-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .settings-header h3 { font-size: calc(18px * var(--font-scale)); color: var(--text-primary); }
+        .settings-header .close-settings { background: var(--bg-hover); border: none; width: 36px; height: 36px; border-radius: 50%; font-size: calc(18px * var(--font-scale)); cursor: pointer; color: var(--text-secondary); }
+        .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border-inner); }
+        .settings-row:last-child { border-bottom: none; }
+        .settings-row .settings-label { font-size: calc(15px * var(--font-scale)); color: var(--text-primary); font-weight: 500; }
+        .settings-row .settings-desc { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); margin-top: 2px; }
+        .toggle-switch { position: relative; width: 52px; height: 30px; background: var(--border-light); border-radius: 15px; cursor: pointer; transition: background 0.25s; border: none; outline: none; flex-shrink: 0; }
+        .toggle-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: white; transition: transform 0.25s; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
+        .toggle-switch.active { background: var(--green-primary); }
+        .toggle-switch.active::after { transform: translateX(22px); }
+        .font-size-btns { display: flex; gap: 8px; align-items: center; }
+        .font-size-btns button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border-light); background: var(--bg-card); font-size: calc(18px * var(--font-scale)); font-weight: 700; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s, border-color 0.2s; }
+        .font-size-btns button:active { background: var(--bg-hover); }
+        .font-size-btns button:disabled { opacity: 0.3; cursor: not-allowed; }
+        .font-size-btns .font-size-value { font-size: calc(14px * var(--font-scale)); font-weight: 600; color: var(--text-primary); min-width: 48px; text-align: center; }
+
+        /* 底部设置按钮 */
+        .settings-float-btn { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); right: 16px; width: 48px; height: 48px; border-radius: 50%; background: var(--green-primary); color: white; border: none; cursor: pointer; box-shadow: 0 4px 16px rgba(7,193,96,0.4); display: flex; align-items: center; justify-content: center; z-index: 199; transition: transform 0.2s, background 0.2s; }
+        .settings-float-btn:active { transform: scale(0.92); }
+        .settings-float-btn svg { width: 24px; height: 24px; fill: none; stroke: white; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* ============ Toast ============ */
+        .toast { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); background: var(--bg-toast); color: #fff; padding: 10px 20px; border-radius: 6px; font-size: calc(14px * var(--font-scale)); z-index: 9999; display: none; max-width: 80%; text-align: center; transition: background 0.2s, color 0.2s; }
+        .toast.show { display: block; animation: toastIn 0.3s ease; }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+        .hidden { display: none !important; }
+        .footer { text-align: center; padding: 24px 16px 12px; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+
+        /* ============ 顶部左侧：状态 + 录入人 ============ */
+        .navbar .nav-left { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; max-width: 60%; }
+        .navbar .nav-left .status-badge, .navbar .nav-left .user-badge { position: static; transform: none; }
+        .user-badge { font-size: calc(12px * var(--font-scale)); padding: 4px 12px; border-radius: 20px; font-weight: 600; background: var(--bg-hover); color: var(--text-secondary); cursor: pointer; border: none; white-space: nowrap; }
+        .user-badge.set { background: var(--green-bg); color: var(--green-text); }
+
+        /* ============ 管道工具页 ============ */
+        .tool-tabs { display: flex; gap: 8px; padding: 12px 16px 4px; }
+        .tool-tabs button { flex: 1; padding: 10px; border: 1px solid var(--border-light); background: var(--bg-card); color: var(--text-secondary); border-radius: 8px; font-size: calc(14px * var(--font-scale)); font-weight: 600; cursor: pointer; transition: all 0.15s; }
+        .tool-tabs button.active { background: var(--green-primary); color: #fff; border-color: var(--green-primary); }
+        .tool-section { display: none; padding: 8px 0; }
+        .tool-section.active { display: block; }
+        .pipe-search { display: flex; gap: 8px; padding: 12px 16px; }
+        .pipe-search input { flex: 1; padding: 12px 14px; border: 1px solid var(--border-light); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font-size: calc(15px * var(--font-scale)); outline: none; min-width: 0; }
+        .pipe-search input:focus { border-color: var(--green-primary); }
+        .pipe-search button { padding: 12px 20px; background: var(--green-primary); color: #fff; border: none; border-radius: 8px; font-size: calc(15px * var(--font-scale)); font-weight: 600; cursor: pointer; }
+        .dn-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 16px 12px; }
+        .dn-chip { padding: 6px 11px; border: 1px solid var(--border-light); background: var(--bg-card); border-radius: 18px; font-size: calc(13px * var(--font-scale)); color: var(--text-primary); cursor: pointer; transition: all 0.15s; }
+        .dn-chip.active { background: var(--green-primary); color: #fff; border-color: var(--green-primary); }
+        .wall-result { background: var(--bg-card); border-radius: 12px; margin: 10px 16px; padding: 16px; border: 1px solid var(--border-light); transition: background 0.2s, border-color 0.2s; }
+        .wall-result .wr-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
+        .wall-result .wr-title { font-size: calc(16px * var(--font-scale)); font-weight: 700; color: var(--green-primary); }
+        .wall-result .wr-od { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); }
+        .wall-table { width: 100%; border-collapse: collapse; font-size: calc(13px * var(--font-scale)); }
+        .wall-table td { padding: 8px 6px; border-bottom: 1px solid var(--border-inner); }
+        .wall-table td.k { color: var(--text-secondary); font-weight: 600; width: 42%; }
+        .wall-table td.v { color: var(--text-primary); font-weight: 600; text-align: right; }
+        .wall-table td.v.empty { color: var(--text-tertiary); font-weight: 400; }
+        .calc-card { background: var(--bg-card); border-radius: 12px; margin: 10px 16px; padding: 16px; border: 1px solid var(--border-light); transition: background 0.2s, border-color 0.2s; }
+        .calc-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+        .calc-row label { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); min-width: 60px; }
+        .calc-row select, .calc-row input { flex: 1; min-width: 120px; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font-size: calc(15px * var(--font-scale)); outline: none; }
+        .calc-row select:focus, .calc-row input:focus { border-color: var(--green-primary); }
+        .calc-btns { display: flex; gap: 10px; }
+        .calc-btns button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: calc(15px * var(--font-scale)); font-weight: 600; cursor: pointer; }
+        .calc-btns .calc-go { background: var(--green-primary); color: #fff; }
+        .calc-btns .calc-reset { background: var(--bg-hover); color: var(--text-primary); }
+        .calc-result { display: flex; gap: 12px; margin-top: 14px; }
+        .calc-result .r-box { flex: 1; text-align: center; background: var(--bg-input); border-radius: 10px; padding: 14px 8px; transition: background 0.2s; }
+        .calc-result .r-box .rv { font-size: calc(24px * var(--font-scale)); font-weight: 700; color: var(--green-primary); }
+        .calc-result .r-box .rl { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); margin-top: 4px; }
+        .calc-result .r-box .ru { font-size: calc(11px * var(--font-scale)); color: var(--text-tertiary); }
+        .calc-badge { display: inline-block; margin-top: 12px; padding: 6px 12px; border-radius: 8px; font-size: calc(13px * var(--font-scale)); background: var(--bg-card); border: 1px solid var(--border-light); color: var(--green-primary); transition: background 0.2s, border-color 0.2s; }
+        .calc-error { display: none; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--red-bg); color: var(--red-text); font-size: calc(13px * var(--font-scale)); }
+        .calc-tip { font-size: calc(12px * var(--font-scale)); color: var(--text-tertiary); margin: 8px 0 0; line-height: 1.5; }
+
+        /* ============ 管道工具：参考风整页 ============ */
+        .tool-block { padding: 12px 16px 4px; }
+        .tool-block-title { font-size: calc(15px * var(--font-scale)); font-weight: 700; color: var(--text-primary); margin: 8px 0 10px; display: flex; align-items: center; gap: 8px; }
+        .tool-block-title .calc-badge { margin: 0; }
+        .dn-group-label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); font-weight: 600; margin: 12px 0 6px; }
+        .sch-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .sch-grid .sch-chip { padding: 12px 0; border: 1px solid var(--border-light); background: var(--bg-card); border-radius: 8px; font-size: calc(13px * var(--font-scale)); font-weight: 600; color: var(--text-primary); text-align: center; cursor: pointer; transition: all 0.15s; }
+        .sch-grid .sch-chip.active { background: var(--green-primary); color: #fff; border-color: var(--green-primary); }
+        .wall-result-single { display: flex; align-items: center; justify-content: space-between; background: var(--bg-input); border-radius: 10px; padding: 16px; margin-top: 6px; transition: background 0.2s; }
+        .wall-result-single .wrs-code { font-size: calc(15px * var(--font-scale)); font-weight: 700; color: var(--text-secondary); }
+        .wall-result-single .wrs-val { font-size: calc(28px * var(--font-scale)); font-weight: 700; color: var(--green-primary); }
+        .wall-result-single .wrs-unit { font-size: calc(13px * var(--font-scale)); color: var(--text-tertiary); margin-left: 4px; font-weight: 400; }
+
+        /* ============ 自定义软键盘 ============ */
+        .custom-keyboard { position: fixed; bottom: calc(64px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); max-width: 480px; width: 100%; background: var(--bg-nav); border-top: 1px solid var(--border-light); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); z-index: 198; display: none; transition: background 0.2s, border-color 0.2s; }
+        .custom-keyboard.active { display: block; }
+        .custom-keyboard .kb-row { display: flex; gap: 6px; margin-bottom: 6px; }
+        .custom-keyboard .kb-row:last-child { margin-bottom: 0; }
+        .custom-keyboard button { flex: 1; padding: 12px 0; border: 1px solid var(--border-light); background: var(--bg-card); border-radius: 8px; font-size: calc(16px * var(--font-scale)); font-weight: 600; color: var(--text-primary); cursor: pointer; transition: background 0.15s; }
+        .custom-keyboard button:active { background: var(--bg-hover); }
+        .custom-keyboard button.wide { flex: 2; }
+        .custom-keyboard button.danger { background: var(--red-bg); color: var(--red-text); }
+
+        /* ============ 详情：复制 / 备注 ============ */
+        .detail-actions { display: flex; gap: 8px; margin: 10px 0 4px; }
+        .detail-actions button { flex: 1; padding: 9px; border: 1px solid var(--border-light); background: var(--bg-input); color: var(--green-primary); border-radius: 8px; font-size: calc(13px * var(--font-scale)); font-weight: 600; cursor: pointer; transition: background 0.15s; }
+        .detail-actions button:active { background: var(--bg-hover); }
+        .detail-note { margin-top: 14px; padding: 12px 14px; background: var(--bg-input); border-left: 4px solid var(--amber-text); border-radius: 6px; transition: background 0.2s; }
+        .detail-note .note-title { font-size: calc(13px * var(--font-scale)); font-weight: 700; color: var(--amber-text); margin-bottom: 6px; }
+        .detail-note textarea { width: 100%; min-height: 64px; border: 1px solid var(--border-light); border-radius: 6px; padding: 8px; font-size: calc(13px * var(--font-scale)); background: var(--bg-card); color: var(--text-primary); resize: vertical; outline: none; box-sizing: border-box; }
+        .detail-note .note-btns { display: flex; gap: 8px; margin-top: 8px; }
+        .detail-note .note-btns button { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: calc(13px * var(--font-scale)); font-weight: 600; cursor: pointer; }
+        .detail-note .note-save { background: var(--green-primary); color: #fff; }
+        .detail-note .note-del { background: var(--bg-hover); color: var(--red-text); }
+    </style>
+</head>
+<body>
+<div class="app">
+
+    <!-- 顶部导航栏 -->
+    <div class="navbar">
+        <div class="nav-left">
+            <span class="status-badge local" id="statusBadge">💾 本地数据</span>
+            <button class="user-badge" id="userBadge" onclick="promptUserName()">👤 设置姓名</button>
+        </div>
+        <h1 id="mainTitle">工作量</h1>
+        <button class="right-btn" onclick="openSettings()">⋯</button>
+    </div>
+
+    <!-- ==================== 页面 1：查询 ==================== -->
+    <div id="pageQuery" class="page-mode">
+        <div class="search-box">
+            <input type="text" id="keyword" placeholder="焊缝编号 / 管线号 / 焊工号...">
+            <button id="queryBtn" onclick="doSearch()">查询</button>
+        </div>
+
+        <div class="stat-grid">
+            <div class="stat-card" id="cardTotal" onclick="setFilter('all')"><div class="num" id="sTotal">0</div><div class="lbl">总焊口数</div></div>
+            <div class="stat-card size"><div class="num" id="sTotalSize">0</div><div class="lbl">总焊口寸数</div></div>
+            <div class="stat-card" id="cardWelded" onclick="setFilter('welded')"><div class="num" id="sWelded">0</div><div class="lbl">已焊接</div></div>
+            <div class="stat-card size" id="cardWeldedSize"><div class="num" id="sWeldedSize">0</div><div class="lbl">已焊寸口</div></div>
+            <div class="stat-card" id="cardUnwelded" onclick="setFilter('unwelded')"><div class="num" id="sUnwelded">0</div><div class="lbl">未焊接</div></div>
+            <div class="stat-card size" id="cardUnweldedSize"><div class="num" id="sUnweldedSize">0</div><div class="lbl">未焊寸口</div></div>
+        </div>
+
+        <div class="query-summary" id="querySummary" style="display:none;"></div>
+        <div id="resultArea">
+            <div class="hint"><span class="big">🔍</span>输入焊缝编号、管线号或焊工号后，点击「查询」查看结果</div>
+        </div>
+    </div>
+
+    <!-- ==================== 页面 1：工作量（对齐参考APK）==================== -->
+    <div id="pageWork" class="page-mode active">
+        <div class="sub-tabs">
+            <button class="active" id="subTabWork" onclick="switchWorkSub('work')">工作量</button>
+            <button id="subTabTotal" onclick="switchWorkSub('total')">总量</button>
+        </div>
+
+        <!-- 子页：工作量录入 -->
+        <div id="subWork">
+            <div class="wb-header">
+                <h2>📊 工作量台账</h2>
+                <div class="btns">
+                    <button class="btn-green" onclick="exportWorkbench()">📤 导出 Excel</button>
+                    <button class="btn-gray" onclick="exportBackup()">📦 备份</button>
+                    <button class="btn-gray" onclick="importBackupFile()">📥 导入</button>
+                </div>
+            </div>
+
+            <div class="wb-toolbar">
+                <span>日期筛选：</span>
+                <input type="date" id="wbDateStart">
+                <span>~</span>
+                <input type="date" id="wbDateEnd">
+                <button onclick="clearWbFilter()">清除筛选</button>
+                <span style="margin-left:12px; color:var(--green-primary); font-weight:600;">🔁 统一日期：</span>
+                <input type="date" id="wbBatchDate">
+                <button onclick="batchSetDate()" style="background:var(--green-primary); color:#fff;">应用到当前所有行</button>
+            </div>
+
+            <div class="wb-table-wrap">
+                <table class="wb-table" id="wbTable">
+                    <thead>
+                        <tr>
+                            <th>区域</th><th>管工</th><th>焊工</th><th>普工</th>
+                            <th>管道安装(寸)</th><th>管道预制(寸)</th><th>支架安装(个)</th>
+                            <th>安装重量(kg)</th><th>阀门安装(台)</th><th>支架预制(个)</th>
+                            <th>预制重量(kg)</th><th>包含2寸以下(寸)</th><th>备注</th><th>日期</th><th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wbBody"></tbody>
+                </table>
+            </div>
+
+            <button class="wb-add-row" onclick="wbAddRow()">➕ 新增一行记录</button>
+
+            <div class="wb-stats" id="wbStats">
+                <div class="wb-stat"><div class="num" id="w1">0</div><div class="lbl">管工</div></div>
+                <div class="wb-stat"><div class="num" id="w2">0</div><div class="lbl">焊工</div></div>
+                <div class="wb-stat"><div class="num" id="w3">0</div><div class="lbl">普工</div></div>
+                <div class="wb-stat"><div class="num" id="w4">0.00</div><div class="lbl">管道安装(寸)</div></div>
+                <div class="wb-stat"><div class="num" id="w5">0.00</div><div class="lbl">管道预制(寸)</div></div>
+                <div class="wb-stat"><div class="num" id="w6">0</div><div class="lbl">支架安装(个)</div></div>
+                <div class="wb-stat"><div class="num" id="w7">0.00</div><div class="lbl">安装重量(kg)</div></div>
+                <div class="wb-stat"><div class="num" id="w8">0</div><div class="lbl">阀门安装(台)</div></div>
+                <div class="wb-stat"><div class="num" id="w9">0</div><div class="lbl">支架预制(个)</div></div>
+                <div class="wb-stat"><div class="num" id="w10">0.00</div><div class="lbl">预制重量(kg)</div></div>
+                <div class="wb-stat"><div class="num" id="w11">0.00</div><div class="lbl">含2寸以下(寸)</div></div>
+                <div class="wb-stat wide"><div class="num" id="w12">-</div><div class="lbl">备注汇总</div></div>
+            </div>
+
+            <!-- 尾项 / 整改台账 -->
+            <div class="punch-section" style="margin-top:8px;">
+                <div class="wb-header">
+                    <h2>📝 尾项 / 整改台账</h2>
+                <div class="btns">
+                    <button class="btn-green" onclick="punchAdd()">➕ 新增尾项</button>
+                    <button class="btn-gray" onclick="exportPunch()">📤 导出 Excel</button>
+                </div>
+                </div>
+                <div class="wb-toolbar">
+                    <span>状态筛选：</span>
+                    <select id="punchFilter" onchange="renderPunchTable()" style="padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-size:calc(14px*var(--font-scale));">
+                        <option value="">全部</option>
+                        <option value="未处理">未处理</option>
+                        <option value="处理中">处理中</option>
+                        <option value="已完成">已完成</option>
+                    </select>
+                    <span style="margin-left:12px;color:var(--text-secondary);">共 <b id="punchCount" style="color:var(--green-primary);">0</b> 项</span>
+                </div>
+                <div class="wb-table-wrap">
+                    <table class="wb-table" id="punchTable">
+                        <thead>
+                            <tr>
+                                <th>编号</th><th>内容/描述</th><th>位置</th><th>类型</th>
+                                <th>责任人</th><th>状态</th><th>录入人</th><th>日期</th><th>备注</th><th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="punchBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 子页：总量（焊接进度统计，对应参考APK"总量"）-->
+        <div id="subTotal" style="display:none;">
+            <div class="dash-card">
+                <div class="dash-title">📊 焊接进度</div>
+                <div class="dash-grid3">
+                    <div class="cell"><div class="v" id="stTotal">0</div><div class="l">总焊口数</div></div>
+                    <div class="cell"><div class="v" id="stWelded">0</div><div class="l">已焊接</div></div>
+                    <div class="cell"><div class="v red" id="stUnwelded">0</div><div class="l">未焊接</div></div>
+                </div>
+                <div class="progress"><div class="bar" id="statProgressBar" style="width:0%;"></div></div>
+                <div class="dash-title" style="margin-top:10px;margin-bottom:0;" id="stRate">完成率 0%</div>
+            </div>
+
+            <div class="dash-card">
+                <div class="dash-title">📐 焊接寸口</div>
+                <div class="dash-grid3">
+                    <div class="cell"><div class="v amber" id="stTotalSize">0</div><div class="l">总寸口</div></div>
+                    <div class="cell"><div class="v" id="stWeldedSize">0</div><div class="l">已焊寸口</div></div>
+                    <div class="cell"><div class="v red" id="stUnweldedSize">0</div><div class="l">未焊寸口</div></div>
+                </div>
+            </div>
+
+            <div class="dash-card">
+                <div class="dash-title">🌀 外径分布</div>
+                <div class="od-list" id="odList"><span class="hint" style="padding:10px 0;">加载中...</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 页面 5：壁厚（对齐参考APK）==================== -->
+    <div id="pageThick" class="page-mode">
+
+        <!-- 钢管规格 / 壁厚查询 -->
+        <div class="tool-block">
+            <div class="tool-block-title">📐 选择公称直径 DN</div>
+            <div class="dn-group-label">小口径 DN15–DN200</div>
+            <div class="dn-grid" id="dnGridSmall"></div>
+            <div class="dn-group-label">大口径 DN250–DN1000</div>
+            <div class="dn-grid" id="dnGridLarge"></div>
+        </div>
+
+        <div class="tool-block">
+            <div class="tool-block-title">💡 选择壁厚代码</div>
+            <div class="sch-grid" id="schGrid"></div>
+        </div>
+
+        <div id="wallResultArea"><div class="hint"><span class="big">📏</span>先选择 DN，再选择壁厚代码，查询钢管外径与壁厚（俄罗斯标准 GOST）</div></div>
+
+        <!-- 弯头计算器 -->
+        <div class="tool-block">
+            <div class="tool-block-title">⚙️ 弯头计算器 <span class="calc-badge">1.5D</span></div>
+            <p class="calc-tip">ASME B16.9 长半径 · 任意角度 · 支持自定义管径</p>
+            <div class="calc-card">
+                <div class="calc-row">
+                    <label>管径 NPS</label>
+                    <select id="bendNps"></select>
+                </div>
+                <div class="calc-row">
+                    <label>或自定义</label>
+                    <input type="text" id="bendCustom" placeholder="如 3.5 或 5（英寸）">
+                </div>
+                <div class="calc-row">
+                    <label>角度 θ</label>
+                    <input type="number" id="bendAngle" value="90" min="1" max="179">
+                </div>
+                <div class="calc-btns">
+                    <button class="calc-go" onclick="calcBend()">计算</button>
+                    <button class="calc-reset" onclick="resetBend()">重置</button>
+                </div>
+                <div class="calc-error" id="bendError"></div>
+                <div class="calc-result">
+                    <div class="r-box"><div class="rv" id="bendA">—</div><div class="rl">下料长 A</div><div class="ru">mm</div></div>
+                    <div class="r-box"><div class="rv" id="bendL">—</div><div class="rl">弧长 L</div><div class="ru">mm</div></div>
+                </div>
+                <div class="calc-badge" id="bendR">R = —</div>
+                <p class="calc-tip">A = R·tan(θ/2)，L = R·θ（弧度）。R 取 ANSI B16.9 长半径 = 1.5 × NPS × 25.4 mm。</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 页面 6：支架（对齐参考APK）==================== -->
+    <div id="pageBracket" class="page-mode">
+        <div class="search-box">
+            <input type="text" id="bracketInput" placeholder="输入支架号，如 12-SUP-30194">
+            <button id="bracketBtn" onclick="searchBracket()">查支架</button>
+        </div>
+        <div class="quick" id="bracketQuick">
+            <button data-bracket="12-SUP-">12-SUP-</button>
+            <button data-bracket="13-SUP-">13-SUP-</button>
+            <button data-bracket="15-SUP-">15-SUP-</button>
+            <button data-bracket="20-SUP-">20-SUP-</button>
+        </div>
+        <div id="resultAreaBracket"></div>
+        <div style="padding: 10px 16px 0;">
+            <button onclick="refreshBracketData()" style="width:100%;padding:12px;background:var(--green-primary);color:white;border:none;border-radius:4px;font-size:15px;font-weight:600;cursor:pointer;">🔄 刷新支架数据</button>
+        </div>
+        <div style="padding: 8px 16px 0;">
+            <button onclick="bracketAdd()" style="width:100%;padding:10px;background:var(--bg-card);color:var(--green-primary);border:1px solid var(--border-light);border-radius:4px;font-size:14px;cursor:pointer;">➕ 新增支架台账</button>
+        </div>
+        <div class="wb-table-wrap" style="margin-top:10px;">
+            <table class="wb-table" id="bracketLocalTable">
+                <thead><tr><th>位号</th><th>规格</th><th>位置</th><th>状态</th><th>责任人</th><th>备注</th><th>操作</th></tr></thead>
+                <tbody id="bracketLocalBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ==================== 页面 7：阀门（对齐参考APK）==================== -->
+    <div id="pageValve" class="page-mode">
+        <div class="search-box">
+            <input type="text" id="valveInput" placeholder="输入阀门位号，如 565-GV-0026">
+            <button id="valveBtn" onclick="searchValve()">查阀门</button>
+        </div>
+        <div class="quick" id="valveQuick">
+            <button data-valve="565-GV-">565-GV-</button>
+            <button data-valve="567-GV-">567-GV-</button>
+            <button data-valve="567-CV-">567-CV-</button>
+            <button data-valve="569-GV-">569-GV-</button>
+        </div>
+        <div id="resultAreaValve"></div>
+        <div style="padding: 10px 16px 0;">
+            <button onclick="refreshValveData()" style="width:100%;padding:12px;background:var(--green-primary);color:white;border:none;border-radius:4px;font-size:15px;font-weight:600;cursor:pointer;">🔄 刷新阀门数据</button>
+        </div>
+        <div style="padding: 8px 16px 0;">
+            <button onclick="valveAdd()" style="width:100%;padding:10px;background:var(--bg-card);color:var(--green-primary);border:1px solid var(--border-light);border-radius:4px;font-size:14px;cursor:pointer;">➕ 新增阀门台账</button>
+        </div>
+        <div id="valveTotalArea"></div>
+        <div class="wb-table-wrap" style="margin-top:10px;">
+            <table class="wb-table" id="valveLocalTable">
+                <thead><tr><th>位号</th><th>规格</th><th>位置</th><th>状态</th><th>责任人</th><th>备注</th><th>操作</th></tr></thead>
+                <tbody id="valveLocalBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 底部 Tab（对齐参考APK：工作量/焊口/支架/阀门/壁厚）-->
+    <div class="bottom-tabs">
+        <button class="tab-item active" id="tabWork" onclick="switchPage('Work')">
+            <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M3 10h18v4H3z"/><path d="M3 17h18v4H3z"/></svg>
+            <span class="tab-label">工作量</span>
+        </button>
+        <button class="tab-item" id="tabQuery" onclick="switchPage('Query')">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <span class="tab-label">焊口</span>
+        </button>
+        <button class="tab-item" id="tabBracket" onclick="switchPage('Bracket')">
+            <svg viewBox="0 0 24 24"><path d="M4 3h4v18H4z"/><path d="M16 3h4v18h-4z"/><path d="M8 8h8"/></svg>
+            <span class="tab-label">支架</span>
+        </button>
+        <button class="tab-item" id="tabValve" onclick="switchPage('Valve')">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M5 5l3 3"/><path d="M16 16l3 3"/><path d="M19 5l-3 3"/><path d="M8 16l-3 3"/></svg>
+            <span class="tab-label">阀门</span>
+        </button>
+        <button class="tab-item" id="tabThick" onclick="switchPage('Thick')">
+            <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 6v12"/><path d="M12 6v12"/><path d="M17 6v12"/></svg>
+            <span class="tab-label">壁厚</span>
+        </button>
+    </div>
+
+    <!-- 设置悬浮按钮 -->
+    <button class="settings-float-btn" onclick="openSettings()" aria-label="设置">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+
+    <!-- 自定义软键盘（移动端输入辅助） -->
+    <div class="custom-keyboard" id="customKeyboard"></div>
+
+</div>   <!-- .app 结束 -->
+
+<!-- ==================== 弹窗：焊口详情 ==================== -->
+<div class="dialog-overlay" id="detailModal" onclick="if(event.target===this) closeDetail()">
+    <div class="dialog">
+        <button class="dlg-close" onclick="closeDetail()">✕</button>
+        <div id="detailContent"></div>
+    </div>
+</div>
+
+<!-- ==================== 设置面板 ==================== -->
+<div class="settings-panel" id="settingsPanel" onclick="if(event.target===this) closeSettings()">
+    <div class="settings-inner">
+        <div class="settings-header">
+            <h3>⚙️ 设置</h3>
+            <button class="close-settings" onclick="closeSettings()">✕</button>
+        </div>
+        <div class="settings-row">
+            <div>
+                <div class="settings-label">深色模式</div>
+                <div class="settings-desc">夜间 / 弱光环境更舒适</div>
+            </div>
+            <button class="toggle-switch" id="darkToggle" onclick="toggleDark()"></button>
+        </div>
+        <div class="settings-row">
+            <div>
+                <div class="settings-label">字体大小</div>
+                <div class="settings-desc">调整界面文字大小</div>
+            </div>
+            <div class="font-size-btns">
+                <button id="fontMinus" onclick="changeFont(-0.1)">A−</button>
+                <span class="font-size-value" id="fontScaleVal">100%</span>
+                <button id="fontPlus" onclick="changeFont(0.1)">A＋</button>
+            </div>
+        </div>
+        <div class="settings-row">
+            <div>
+                <div class="settings-label">录入人姓名</div>
+                <div class="settings-desc">用于标识当前使用者</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <input id="userNameInput" placeholder="姓名" style="width:90px;padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-size:calc(14px*var(--font-scale));">
+                <button onclick="saveUserNameFromSettings()" style="padding:8px 14px;background:var(--green-primary);color:#fff;border:none;border-radius:6px;font-size:calc(13px*var(--font-scale));cursor:pointer;">保存</button>
+            </div>
+        </div>
+        <div class="settings-row">
+            <div>
+                <div class="settings-label">版本 / 热更新</div>
+                <div class="settings-desc">当前 v<span id="setVersion">1.4.2</span>，可手动检查更新</div>
+            </div>
+            <button style="border:none;background:var(--green-primary);color:#fff;border-radius:6px;padding:8px 14px;font-size:calc(13px*var(--font-scale));cursor:pointer;font-weight:600;" onclick="checkForUpdate()">检查更新</button>
+        </div>
+        <div class="settings-about">
+            <h4>📱 功能说明</h4>
+            <p>· <b>工作量</b>：人员 / 管道寸口 / 支架 / 阀门 / 重量录入与统计<br>· <b>焊口</b>：按焊缝编号 / 管线号 / 焊工号检索<br>· <b>支架 / 阀门</b>：台账查询与录入（数据随库更新）<br>· <b>壁厚</b>：俄罗斯标准 GOST 钢管壁厚 + 弯头计算器<br>· 本地备注 / 录入人 / 深色模式 / 离线可用</p>
+            <p class="settings-note">数据随包内置，仅供现场查询与核对，最终以正式记录为准。</p>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- 隐藏：当前版本号 + 备份导入文件选择 -->
+<span id="currentVersion" style="display:none;">1.4.2</span>
+<input type="file" id="backupFile" accept="application/json" style="display:none" onchange="handleBackupFile(event)">
+
+<script src="data.js"></script>
+<script src="schedule.js"></script>
+<script>
+    /* ============ PWA Service Worker 注册 ============ */
+    var _updatePending = false;
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./service-worker.js')
+            .then(function(reg) { console.log('✅ SW 注册成功'); })
+            .catch(function(err) { console.log('❌ SW 注册失败:', err); });
+        navigator.serviceWorker.addEventListener('controllerchange', function(){
+            if (_updatePending) { window.location.reload(); }
+        });
+    }
+
+    /* ============ 设计偏好（深色 / 字号）============ */
+    var PREF_DARK = 'weldDarkMode';
+    var PREF_FONT = 'weldFontScale';
+    var APP_VERSION = '1.4.2';
+    function applyDark(on) { document.body.classList.toggle('dark-mode', on); }
+    function applyFont(scale) { document.documentElement.style.setProperty('--font-scale', scale); }
+    function loadPrefs() {
+        try {
+            if (localStorage.getItem(PREF_DARK) === '1') applyDark(true);
+            var fs = parseFloat(localStorage.getItem(PREF_FONT));
+            if (!isNaN(fs) && fs >= 0.8 && fs <= 1.4) applyFont(fs); else applyFont(1);
+        } catch (e) {}
+    }
+
+    /* ============ 本地附加焊口（localStorage）============ */
+    (function loadLocalData() {
+        try {
+            var local = localStorage.getItem('localWelds');
+            if (local) {
+                var arr = JSON.parse(local);
+                arr.forEach(function(item){ weldData.push(item); });
+            }
+        } catch (e) {}
+    })();
+
+    /* ============ 页面切换 ============ */
+    var PAGES = { Work: '工作量', Query: '焊口', Bracket: '支架', Valve: '阀门', Thick: '壁厚' };
+    function switchPage(key) {
+        Object.keys(PAGES).forEach(function(k) {
+            var on = (k === key);
+            var p = document.getElementById('page' + k); if (p) p.classList.toggle('active', on);
+            var t = document.getElementById('tab' + k); if (t) t.classList.toggle('active', on);
+        });
+        document.getElementById('mainTitle').innerText = PAGES[key];
+        if (key !== 'Query') hideKeyboard();
+        if (key === 'Work') { openWorkbench(); }
+        if (key === 'Bracket') { initBracket(); }
+        if (key === 'Valve') { initValve(); }
+        if (key === 'Thick') { initWallQuery(); initBendCalc(); }
+        window.scrollTo(0, 0);
+    }
+
+    /* ============ 查询 ============ */
+    var currentFilter = 'all';
+    var hasSearched = false;
+
+    function setFilter(type) {
+        currentFilter = type;
+        hasSearched = true;
+        document.getElementById('cardTotal').classList.remove('selected');
+        document.getElementById('cardWelded').classList.remove('selected');
+        document.getElementById('cardWeldedSize').classList.remove('selected');
+        document.getElementById('cardUnwelded').classList.remove('selected');
+        document.getElementById('cardUnweldedSize').classList.remove('selected');
+        if (type === 'all') document.getElementById('cardTotal').classList.add('selected');
+        if (type === 'welded') { document.getElementById('cardWelded').classList.add('selected'); document.getElementById('cardWeldedSize').classList.add('selected'); }
+        if (type === 'unwelded') { document.getElementById('cardUnwelded').classList.add('selected'); document.getElementById('cardUnweldedSize').classList.add('selected'); }
+        doSearch();
+    }
+
+    function updateStatsAll() {
+        var totalSize = 0;
+        weldData.forEach(function(item){ totalSize += parseFloat(item["尺寸"]) || 0; });
+        document.getElementById('sTotal').innerText = weldData.length;
+        document.getElementById('sTotalSize').innerText = totalSize.toFixed(2);
+    }
+
+    function updateStats(filteredData) {
+        var welded = 0, unwelded = 0, weldedSize = 0, unweldedSize = 0;
+        filteredData.forEach(function(item){
+            var size = parseFloat(item["尺寸"]) || 0;
+            if (item["焊接日期"] && item["焊接日期"] !== "") { welded++; weldedSize += size; }
+            else { unwelded++; unweldedSize += size; }
+        });
+        document.getElementById('sWelded').innerText = welded;
+        document.getElementById('sWeldedSize').innerText = weldedSize.toFixed(2);
+        document.getElementById('sUnwelded').innerText = unwelded;
+        document.getElementById('sUnweldedSize').innerText = unweldedSize.toFixed(2);
+    }
+
+    function naturalCompare(s1, s2) {
+        s1 = (s1 || "").toString().trim().toUpperCase();
+        s2 = (s2 || "").toString().trim().toUpperCase();
+        var m1 = s1.match(/\d+/), m2 = s2.match(/\d+/);
+        var n1 = m1 ? parseInt(m1[0], 10) : 0;
+        var n2 = m2 ? parseInt(m2[0], 10) : 0;
+        if (n1 !== n2) return n1 - n2;
+        return s1.localeCompare(s2);
+    }
+
+    function doSearch() {
+        if (typeof weldData === "undefined") {
+            document.getElementById('resultArea').innerHTML = "<div class='hint'><span class='big'>❌</span>数据未加载：请检查 data.js 文件是否存在</div>";
+            return;
+        }
+        var kw = document.getElementById('keyword').value.trim();
+        var resultArea = document.getElementById('resultArea');
+
+        if (kw === "" && !hasSearched) {
+            resultArea.innerHTML = "<div class='hint'><span class='big'>🔍</span>输入焊缝编号、管线号或焊工号后，点击「查询」查看结果</div>";
+            document.getElementById('querySummary').style.display = 'none';
+            return;
+        }
+        hasSearched = true;
+
+        var kwLower = kw.toLowerCase();
+        var results = weldData.filter(function(item){
+            var isWelded = item["焊接日期"] && item["焊接日期"] !== "";
+            if (currentFilter === 'welded' && !isWelded) return false;
+            if (currentFilter === 'unwelded' && isWelded) return false;
+            if (kw === "") return true;
+            var p = (item["管线号"] || "").toLowerCase();
+            var w = (item["焊缝编号"] || "").toLowerCase();
+            var wr = (item["焊工号根层"] || "").toLowerCase();
+            var wf = (item["焊工号填充、盖面"] || "").toLowerCase();
+            return p.indexOf(kwLower) > -1 || w.indexOf(kwLower) > -1 || wr.indexOf(kwLower) > -1 || wf.indexOf(kwLower) > -1;
+        });
+
+        results.sort(function(a, b){ return naturalCompare(a["焊缝编号"], b["焊缝编号"]); });
+
+        updateStatsAll();
+        updateStats(results);
+
+        // 外径分布
+        var sizeCount = {};
+        results.forEach(function(r){
+            var od = (r["外径1"] || "-").toString().trim();
+            if (od === "") od = "-";
+            sizeCount[od] = (sizeCount[od] || 0) + 1;
+        });
+        var odKeys = Object.keys(sizeCount).sort(function(a, b){
+            var n1 = parseFloat(a), n2 = parseFloat(b);
+            if (!isNaN(n1) && !isNaN(n2)) return n1 - n2;
+            if (!isNaN(n1)) return -1;
+            if (!isNaN(n2)) return 1;
+            return a.localeCompare(b);
+        });
+        var odText = odKeys.map(function(k){ return k + "(" + sizeCount[k] + ")"; }).join("  ");
+        var qs = document.getElementById('querySummary');
+        qs.style.display = 'block';
+        qs.innerHTML = "共 <b>" + results.length + "</b> 条 ｜ 外径：" + (odText || "-");
+
+        if (results.length === 0) {
+            resultArea.innerHTML = "<div class='hint'><span class='big'>📭</span>没有找到匹配的焊口</div>";
+            return;
+        }
+
+        var html = "";
+        for (var i = 0; i < results.length; i++) {
+            var r = results[i];
+            var welded = r["焊接日期"] && r["焊接日期"] !== "";
+            var statusClass = welded ? "welded" : "unwelded";
+            var statusText = welded ? "已焊接" : "未焊接";
+            var lu1 = r["炉批号1"] || "", lu2 = r["炉批号2"] || "", luText;
+            if (lu1 && lu2) luText = lu1 + " / " + lu2;
+            else if (lu1) luText = lu1; else if (lu2) luText = lu2; else luText = "-";
+
+            html += "<div class='result-card' onclick='showDetail(" + weldData.indexOf(r) + ")'>";
+            html += "<div class='rc-head'><span class='rc-no'>焊口：" + (r["焊缝编号"] || "-") + "</span>";
+            html += "<span class='rc-status " + statusClass + "'>" + statusText + "</span></div>";
+            html += "<div class='rc-meta'><b>归属队伍：</b>" + (r["施工承包商"] || "-") + "</div>";
+            html += "<div class='rc-meta'><b>管线号：</b>" + (r["管线号"] || "-") + "</div>";
+            html += "<div class='rc-meta'><b>图号：</b>" + (r["图纸号"] || "-") + "</div>";
+            html += "<div class='rc-meta'><b>区域：</b>" + (r["区域"] || "-") + " ｜ <b>介质：</b>" + (r["介质"] || "-") + "</div>";
+            html += "<div class='rc-meta'><b>规格：</b>" + (r["外径1"] || "-") + "×" + (r["厚度1"] || "-") + "</div>";
+            html += "<div class='rc-meta'><b>焊接寸口(尺寸)：</b>" + (r["尺寸"] || "-") + "</div>";
+            html += "<div class='rc-meta'><b>材质：</b>" + (r["母材材质1"] || "-") + " ｜ <b>炉批号：</b>" + luText + "</div>";
+            html += "<div class='rc-meta'><b>焊工：</b>" + (r["焊工号根层"] || "-") + " ｜ <b>焊接日期：</b>" + (welded ? r["焊接日期"] : "未焊接") + "</div>";
+            html += "<div class='rc-test'><b>VT：</b>" + (r["VT报告号"] || "未委托") + " | " + (r["VT检测结果"] || "无") + " | " + (r["VT报告日期"] || "无");
+            html += " &nbsp; <b>RT：</b>" + (r["RT报告号"] || "未委托") + " | " + (r["RT检测结果"] || "无") + " | " + (r["RT报告日期"] || "无");
+            html += " &nbsp; <b>PT：</b>" + (r["PT报告号"] || "未委托") + " | " + (r["PT检测结果"] || "无") + " | " + (r["PT报告日期"] || "无") + "</div>";
+            html += "</div>";
+        }
+        resultArea.innerHTML = html;
+    }
+
+    /* ============ 焊口详情 ============ */
+    function showDetail(index) {
+        var r = weldData[index];
+        if (!r) return;
+        var welded = r["焊接日期"] && r["焊接日期"] !== "";
+        var lu1 = r["炉批号1"] || "", lu2 = r["炉批号2"] || "", luText;
+        if (lu1 && lu2) luText = lu1 + " / " + lu2;
+        else if (lu1) luText = lu1; else if (lu2) luText = lu2; else luText = "-";
+
+        var html = "";
+        html += "<div class='detail-header'>焊口：" + (r["焊缝编号"] || "-") + "</div>";
+        html += detailLine("归属队伍", r["施工承包商"]);
+        html += detailLine("管线号", r["管线号"]);
+        html += detailLine("图号", r["图纸号"]);
+        html += sepLine("区域", r["区域"], "介质", r["介质"]);
+        html += detailLine("规格", (r["外径1"] || "-") + "×" + (r["厚度1"] || "-"));
+        html += detailLine("焊接寸口(尺寸)", r["尺寸"]);
+        html += sepLine("材质", r["母材材质1"], "炉批号", luText);
+        html += sepLine("焊工", r["焊工号根层"], "焊接日期", welded ? r["焊接日期"] : "未焊接");
+
+        html += "<div class='detail-test-block'>";
+        html += "<div class='test-line'><span class='test-name'>PT：</span>" + (r["PT报告号"] || "未委托") + " | " + (r["PT检测结果"] || "无") + " | " + (r["PT报告日期"] || "无") + "</div>";
+        html += "<div class='test-line'><span class='test-name'>RT：</span>" + (r["RT报告号"] || "未委托") + " | " + (r["RT检测结果"] || "无") + " | " + (r["RT报告日期"] || "无") + "</div>";
+        html += "<div class='test-line'><span class='test-name'>VT：</span>" + (r["VT报告号"] || "未委托") + " | " + (r["VT检测结果"] || "无") + " | " + (r["VT报告日期"] || "无") + "</div>";
+        html += "</div>";
+
+        // 复制 + 本地备注
+        var wno = r["焊缝编号"] || "";
+        currentDetail = { weld: wno, pipe: r["管线号"] || "" };
+        var note = getNote(wno);
+        html += "<div class='detail-actions'>";
+        html += "<button onclick=\"copyText(currentDetail.weld)\">📋 复制焊缝号</button>";
+        html += "<button onclick=\"copyText(currentDetail.pipe)\">📋 复制管线号</button>";
+        html += "</div>";
+        html += "<div class='detail-note'>";
+        html += "<div class='note-title'>📝 本地备注（仅存本机）</div>";
+        html += "<textarea id='noteInput' placeholder='可添加私人备注，例如现场情况、待办事项…'>" + esc(note) + "</textarea>";
+        html += "<div class='note-btns'><button class='note-save' onclick='saveCurrentNote()'>保存</button>";
+        html += "<button class='note-del' onclick='deleteCurrentNote()'>删除</button></div>";
+        html += "</div>";
+
+        document.getElementById('detailContent').innerHTML = html;
+        document.getElementById('detailModal').classList.add('active');
+    }
+    function detailLine(k, v) { return "<div class='detail-line'><span class='dk'>" + k + "：</span><span class='dv'>" + (v || "-") + "</span></div>"; }
+    function sepLine(k1, v1, k2, v2) {
+        return "<div class='detail-line'><span class='dk'>" + k1 + "：</span><span class='dv'>" + (v1 || "-") + "</span><span class='sep'>|</span><span class='dk'>" + k2 + "：</span><span class='dv'>" + (v2 || "-") + "</span></div>";
+    }
+    function closeDetail() { document.getElementById('detailModal').classList.remove('active'); }
+
+    /* ============ 统计页 ============ */
+    function renderStats() {
+        if (typeof weldData === "undefined") {
+            document.getElementById('odList').innerHTML = "<span class='hint' style='padding:10px 0;'>数据未加载</span>";
+            return;
+        }
+        var total = weldData.length, welded = 0, unwelded = 0;
+        var totalSize = 0, weldedSize = 0, unweldedSize = 0;
+        var od = {};
+        weldData.forEach(function(it){
+            var size = parseFloat(it["尺寸"]) || 0; totalSize += size;
+            var isW = it["焊接日期"] && it["焊接日期"] !== "";
+            if (isW) { welded++; weldedSize += size; } else { unwelded++; unweldedSize += size; }
+            var k = (it["外径1"] || "-").toString().trim() || "-"; od[k] = (od[k] || 0) + 1;
+        });
+        document.getElementById('stTotal').innerText = total;
+        document.getElementById('stWelded').innerText = welded;
+        document.getElementById('stUnwelded').innerText = unwelded;
+        document.getElementById('stTotalSize').innerText = totalSize.toFixed(2);
+        document.getElementById('stWeldedSize').innerText = weldedSize.toFixed(2);
+        document.getElementById('stUnweldedSize').innerText = unweldedSize.toFixed(2);
+        var rate = total ? (welded / total * 100) : 0;
+        document.getElementById('statProgressBar').style.width = rate.toFixed(1) + "%";
+        document.getElementById('stRate').innerText = "完成率 " + rate.toFixed(1) + "%";
+
+        var odKeys = Object.keys(od).sort(function(a, b){
+            var n1 = parseFloat(a), n2 = parseFloat(b);
+            if (!isNaN(n1) && !isNaN(n2)) return n1 - n2;
+            if (!isNaN(n1)) return -1; if (!isNaN(n2)) return 1;
+            return a.localeCompare(b);
+        });
+        document.getElementById('odList').innerHTML = odKeys.map(function(k){
+            return "<span class='od-chip'>" + k + "：" + od[k] + "</span>";
+        }).join("") || "<span class='hint' style='padding:10px 0;'>无数据</span>";
+    }
+
+    /* ============ 工作量台账（本地录入）============ */
+    var wbData = [];
+    function loadWbData() {
+        try { var saved = localStorage.getItem('workbenchData'); if (saved) wbData = JSON.parse(saved) || []; } catch(e){ wbData = []; }
+    }
+    function saveWbData() { try { localStorage.setItem('workbenchData', JSON.stringify(wbData)); } catch(e){} }
+    function openWorkbench() { loadWbData(); renderWbTable(); updateWbStats(); loadPunchData(); renderPunchTable(); }
+    function renderWbTable() {
+        var tbody = document.getElementById('wbBody');
+        var start = document.getElementById('wbDateStart').value;
+        var end = document.getElementById('wbDateEnd').value;
+        var rows = wbData.filter(function(r){
+            if (start && (!r["日期"] || r["日期"] < start)) return false;
+            if (end && (!r["日期"] || r["日期"] > end)) return false;
+            return true;
+        });
+        if (rows.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='15' style='text-align:center;color:var(--text-tertiary);padding:20px;'>暂无数据，点击下方“新增一行记录”添加</td></tr>";
+            return;
+        }
+        var html = "";
+        rows.forEach(function(r){
+            var i = wbData.indexOf(r);
+            html += "<tr>";
+            html += "<td><input value='" + esc(r["区域"] || "") + "' onchange='wbEdit(" + i + ",\"区域\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["管工"] || "") + "' onchange='wbEdit(" + i + ",\"管工\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["焊工"] || "") + "' onchange='wbEdit(" + i + ",\"焊工\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["普工"] || "") + "' onchange='wbEdit(" + i + ",\"普工\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["管道安装"] || "") + "' onchange='wbEdit(" + i + ",\"管道安装\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["管道预制"] || "") + "' onchange='wbEdit(" + i + ",\"管道预制\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["支架安装"] || "") + "' onchange='wbEdit(" + i + ",\"支架安装\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["安装重量"] || "") + "' onchange='wbEdit(" + i + ",\"安装重量\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["阀门安装"] || "") + "' onchange='wbEdit(" + i + ",\"阀门安装\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["支架预制"] || "") + "' onchange='wbEdit(" + i + ",\"支架预制\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["预制重量"] || "") + "' onchange='wbEdit(" + i + ",\"预制重量\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["包含2寸以下"] || "") + "' onchange='wbEdit(" + i + ",\"包含2寸以下\", this.value)'></td>";
+            html += "<td><input value='" + esc(r["备注"] || "") + "' onchange='wbEdit(" + i + ",\"备注\", this.value)'></td>";
+            html += "<td><input type='date' value='" + esc(r["日期"] || "") + "' onchange='wbEdit(" + i + ",\"日期\", this.value)'></td>";
+            html += "<td><button class='btn-red' style='padding:6px 10px;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:calc(12px*var(--font-scale));' onclick='wbDelete(" + i + ")'>删除</button></td>";
+            html += "</tr>";
+        });
+        tbody.innerHTML = html;
+    }
+    function esc(s) { return (s || "").toString().replace(/'/g, "&#39;").replace(/"/g, "&quot;"); }
+    function wbEdit(idx, key, value) { wbData[idx][key] = value; saveWbData(); updateWbStats(); }
+    function wbDelete(idx) {
+        if (confirm('确定删除这一行吗？')) { wbData.splice(idx, 1); saveWbData(); renderWbTable(); updateWbStats(); }
+    }
+    function wbAddRow() {
+        wbData.push({ "区域":"","管工":"","焊工":"","普工":"","管道安装":"","管道预制":"","支架安装":"","安装重量":"","阀门安装":"","支架预制":"","预制重量":"","包含2寸以下":"","备注":"","日期":today() });
+        saveWbData(); renderWbTable(); updateWbStats();
+    }
+    function batchSetDate() {
+        var d = document.getElementById('wbBatchDate').value;
+        if (!d) { alert('请先选择一个日期'); return; }
+        var start = document.getElementById('wbDateStart').value;
+        var end = document.getElementById('wbDateEnd').value;
+        var count = 0;
+        wbData.forEach(function(r){
+            if (start && (!r["日期"] || r["日期"] < start)) return;
+            if (end && (!r["日期"] || r["日期"] > end)) return;
+            r["日期"] = d; count++;
+        });
+        if (count === 0) { alert('当前筛选范围内没有可修改的行'); return; }
+        saveWbData(); renderWbTable(); updateWbStats();
+        toast('已将 ' + count + ' 行日期统一改为：' + d);
+    }
+    function updateWbStats() {
+        var start = document.getElementById('wbDateStart').value;
+        var end = document.getElementById('wbDateEnd').value;
+        var rows = wbData.filter(function(r){
+            if (start && (!r["日期"] || r["日期"] < start)) return false;
+            if (end && (!r["日期"] || r["日期"] > end)) return false;
+            return true;
+        });
+        var sum = function(key){ var s = 0; rows.forEach(function(r){ var v = parseFloat(r[key]); if (!isNaN(v)) s += v; }); return s; };
+        document.getElementById('w1').innerText = sum("管工");
+        document.getElementById('w2').innerText = sum("焊工");
+        document.getElementById('w3').innerText = sum("普工");
+        document.getElementById('w4').innerText = sum("管道安装").toFixed(2);
+        document.getElementById('w5').innerText = sum("管道预制").toFixed(2);
+        document.getElementById('w6').innerText = sum("支架安装");
+        document.getElementById('w7').innerText = sum("安装重量").toFixed(2);
+        document.getElementById('w8').innerText = sum("阀门安装");
+        document.getElementById('w9').innerText = sum("支架预制");
+        document.getElementById('w10').innerText = sum("预制重量").toFixed(2);
+        document.getElementById('w11').innerText = sum("包含2寸以下").toFixed(2);
+        var notes = [];
+        rows.forEach(function(r){ var note = (r["备注"] || "").toString().trim(); if (note !== "") notes.push(note); });
+        document.getElementById('w12').innerText = notes.length > 0 ? notes.join("，") : "-";
+    }
+    function clearWbFilter() {
+        document.getElementById('wbDateStart').value = "";
+        document.getElementById('wbDateEnd').value = "";
+        renderWbTable(); updateWbStats();
+    }
+    function exportWorkbench() {
+        if (!wbData || wbData.length === 0) { alert('没有可导出的数据'); return; }
+        var headers = ["区域","管工","焊工","普工","管道安装","管道预制","支架安装","安装重量","阀门安装","支架预制","预制重量","包含2寸以下","备注","日期"];
+        var csv = headers.join(",") + "\n";
+        wbData.forEach(function(r){
+            var row = headers.map(function(h){
+                var v = (r[h] || "").toString().replace(/"/g, '""');
+                if (v.indexOf(",") > -1 || v.indexOf("\n") > -1) v = '"' + v + '"';
+                return v;
+            });
+            csv += row.join(",") + "\n";
+        });
+        var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = "工作台数据_" + today() + ".csv";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    /* ============ 尾项 / 整改台账 ============ */
+    var punchData = [];
+    var PUNCH_KEY = 'punchListData';
+    function loadPunchData() {
+        try { var s = localStorage.getItem(PUNCH_KEY); if (s) punchData = JSON.parse(s) || []; } catch(e){ punchData = []; }
+    }
+    function savePunchData() { try { localStorage.setItem(PUNCH_KEY, JSON.stringify(punchData)); } catch(e){} }
+    function renderPunchTable() {
+        var tbody = document.getElementById('punchBody');
+        if (!tbody) return;
+        var filter = (document.getElementById('punchFilter') || {}).value || '';
+        var rows = punchData.filter(function(r){ return !filter || (r["状态"] || "") === filter; });
+        if (rows.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;color:var(--text-tertiary);padding:18px;'>暂无尾项，点击「新增尾项」添加</td></tr>";
+        } else {
+            var html = "";
+            rows.forEach(function(r){
+                var i = punchData.indexOf(r);
+                html += "<tr>";
+                html += "<td><input value='" + esc(r["编号"] || "") + "' onchange='punchEdit(" + i + ",\"编号\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["内容"] || "") + "' onchange='punchEdit(" + i + ",\"内容\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["位置"] || "") + "' onchange='punchEdit(" + i + ",\"位置\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["类型"] || "") + "' onchange='punchEdit(" + i + ",\"类型\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["责任人"] || "") + "' onchange='punchEdit(" + i + ",\"责任人\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["状态"] || "") + "' onchange='punchEdit(" + i + ",\"状态\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["录入人"] || "") + "' onchange='punchEdit(" + i + ",\"录入人\",this.value)'></td>";
+                html += "<td><input type='date' value='" + esc(r["日期"] || "") + "' onchange='punchEdit(" + i + ",\"日期\",this.value)'></td>";
+                html += "<td><input value='" + esc(r["备注"] || "") + "' onchange='punchEdit(" + i + ",\"备注\",this.value)'></td>";
+                html += "<td><button class='btn-red' style='padding:6px 10px;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:calc(12px*var(--font-scale));' onclick='punchDelete(" + i + ")'>删除</button></td>";
+                html += "</tr>";
+            });
+            tbody.innerHTML = html;
+        }
+        var cnt = document.getElementById('punchCount');
+        if (cnt) cnt.innerText = punchData.length;
+    }
+    function punchEdit(idx, key, value) { if (punchData[idx]) { punchData[idx][key] = value; savePunchData(); } }
+    function punchDelete(idx) { if (confirm('确定删除这条尾项吗？')) { punchData.splice(idx, 1); savePunchData(); renderPunchTable(); } }
+    function punchAdd() {
+        punchData.push({ "编号":"", "内容":"", "位置":"", "类型":"尾项", "责任人":"", "状态":"未处理", "录入人":getCurrentUser(), "日期":today(), "备注":"" });
+        savePunchData(); renderPunchTable();
+    }
+    function exportPunch() {
+        if (!punchData || punchData.length === 0) { alert('没有可导出的尾项'); return; }
+        var headers = ["编号","内容","位置","类型","责任人","状态","录入人","日期","备注"];
+        var csv = headers.join(",") + "\n";
+        punchData.forEach(function(r){
+            var row = headers.map(function(h){
+                var v = (r[h] || "").toString().replace(/"/g, '""');
+                if (v.indexOf(",") > -1 || v.indexOf("\n") > -1) v = '"' + v + '"';
+                return v;
+            });
+            csv += row.join(",") + "\n";
+        });
+        var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = "尾项台账_" + today() + ".csv";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    /* ============ 数据备份 / 同步（导出导入 JSON） ============ */
+    function exportBackup() {
+        var payload = {
+            app: '焊口查询',
+            version: APP_VERSION,
+            exportedAt: new Date().toISOString(),
+            workbench: wbData,
+            punch: punchData
+        };
+        try { payload.localWelds = JSON.parse(localStorage.getItem('localWelds') || '[]'); } catch(e){ payload.localWelds = []; }
+        try { payload.notes = JSON.parse(localStorage.getItem('weldNotes') || '{}'); } catch(e){ payload.notes = {}; }
+        var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = '焊口查询备份_' + today() + '.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        toast('✅ 已导出备份（工作量/支架/阀门/尾项/备注）');
+    }
+    function importBackupFile() {
+        var inp = document.getElementById('backupFile');
+        if (inp) inp.click();
+    }
+    function handleBackupFile(e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function() {
+            try {
+                var data = JSON.parse(reader.result);
+                if (!data || typeof data !== 'object') throw new Error('文件格式不正确');
+                if (!confirm('导入将用备份覆盖本机的工作量/支架/阀门/尾项记录，确定继续？\n（建议先点「备份」导出当前数据）')) { e.target.value = ''; return; }
+                if (Array.isArray(data.workbench)) { wbData = data.workbench; saveWbData(); }
+                if (Array.isArray(data.punch)) { punchData = data.punch; savePunchData(); }
+                if (Array.isArray(data.localWelds)) { localStorage.setItem('localWelds', JSON.stringify(data.localWelds)); }
+                if (data.notes && typeof data.notes === 'object') { localStorage.setItem('weldNotes', JSON.stringify(data.notes)); }
+                renderWbTable(); updateWbStats(); renderPunchTable();
+                toast('✅ 导入成功');
+            } catch(err) {
+                alert('导入失败：' + err.message);
+            }
+            e.target.value = '';
+        };
+        reader.readAsText(file);
+    }
+
+    /* ============ 版本 / 热更新 ============ */
+    function checkForUpdate() {
+        if (!('serviceWorker' in navigator)) { toast('当前环境不支持自动更新'); return; }
+        navigator.serviceWorker.getRegistration().then(function(reg){
+            if (!reg) { toast('未注册 Service Worker'); return; }
+            reg.update().then(function(){
+                if (reg.waiting) { applyUpdate(reg); }
+                else { toast('✅ 已是最新版本 v' + APP_VERSION); }
+            }).catch(function(){ toast('检查更新失败，请稍后重试'); });
+        }).catch(function(){ toast('检查更新失败，请稍后重试'); });
+    }
+    function applyUpdate(reg) {
+        if (!reg || !reg.waiting) return;
+        _updatePending = true;
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        toast('🔄 正在应用新版本…');
+    }
+
+    /* ============ 设置面板 ============ */
+    function openSettings() { document.getElementById('settingsPanel').classList.add('active'); syncSettingsUI(); }
+    function closeSettings() { document.getElementById('settingsPanel').classList.remove('active'); }
+    function toggleDark() {
+        var on = !document.body.classList.contains('dark-mode');
+        applyDark(on);
+        try { localStorage.setItem(PREF_DARK, on ? '1' : '0'); } catch(e){}
+        syncSettingsUI();
+    }
+    function changeFont(d) {
+        var fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-scale')) || 1;
+        fs = Math.min(1.4, Math.max(0.8, Math.round((fs + d) * 10) / 10));
+        applyFont(fs);
+        try { localStorage.setItem(PREF_FONT, fs); } catch(e){}
+        syncSettingsUI();
+    }
+    function syncSettingsUI() {
+        var on = document.body.classList.contains('dark-mode');
+        document.getElementById('darkToggle').classList.toggle('active', on);
+        var fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-scale')) || 1;
+        document.getElementById('fontScaleVal').innerText = Math.round(fs * 100) + "%";
+        document.getElementById('fontMinus').disabled = fs <= 0.8;
+        document.getElementById('fontPlus').disabled = fs >= 1.4;
+        var ui = document.getElementById('userNameInput');
+        if (ui) ui.value = currentUser || '';
+    }
+
+    /* ============ 信息 / Toast ============ */
+    var toastTimer = null;
+    function toast(msg) {
+        var t = document.getElementById('toast');
+        t.innerText = msg; t.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2000);
+    }
+    function today() { return new Date().toISOString().slice(0, 10); }
+
+    /* ============================================================
+       录入人姓名（标识当前使用者，仅本机）
+       ============================================================ */
+    var PREF_USER = 'weldUserName';
+    var currentUser = '';
+    var currentDetail = { weld: '', pipe: '' };
+    function getCurrentUser() { try { return localStorage.getItem(PREF_USER) || ''; } catch (e) { return ''; } }
+    function setCurrentUser(name) {
+        currentUser = name || '';
+        try { localStorage.setItem(PREF_USER, currentUser); } catch (e) {}
+        updateUserBadge();
+    }
+    function updateUserBadge() {
+        var el = document.getElementById('userBadge');
+        if (!el) return;
+        if (currentUser) { el.textContent = '👤 ' + currentUser; el.classList.add('set'); }
+        else { el.textContent = '👤 设置姓名'; el.classList.remove('set'); }
+    }
+    function promptUserName() {
+        var name = prompt('请输入你的姓名（标识当前使用者）', currentUser || '');
+        if (name !== null) { setCurrentUser(name.trim()); toast(currentUser ? '✅ 已设置：' + currentUser : '已清除姓名'); }
+    }
+    function saveUserNameFromSettings() {
+        var v = document.getElementById('userNameInput').value.trim();
+        setCurrentUser(v);
+        toast(v ? '✅ 已设置：' + v : '已清除姓名');
+    }
+
+    /* ============ 复制文本 ============ */
+    function copyText(text) {
+        if (!text) { toast('内容为空'); return; }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { toast('✅ 已复制：' + text); })
+                .catch(function () { fallbackCopy(text); });
+        } else { fallbackCopy(text); }
+    }
+    function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); toast('✅ 已复制：' + text); }
+        catch (e) { toast('❌ 复制失败'); }
+        document.body.removeChild(ta);
+    }
+
+    /* ============ 自定义软键盘 ============ */
+    var kbTarget = null;
+    function buildKeyboard() {
+        var grid = document.getElementById('customKeyboard');
+        if (!grid) return;
+        var rows = [
+            ['A','B','C','D','E','F','G','H'],
+            ['I','J','K','L','M','N','O','P'],
+            ['Q','R','S','T','U','V','W','X'],
+            ['Y','Z','0','1','2','3','4','5'],
+            ['6','7','8','9','-']
+        ];
+        var html = '';
+        rows.forEach(function (row) {
+            html += '<div class="kb-row">';
+            row.forEach(function (ch) { html += '<button type="button" data-key="' + ch + '">' + ch + '</button>'; });
+            html += '</div>';
+        });
+        html += '<div class="kb-row"><button type="button" class="wide" data-key="back">⌫ 删除</button><button type="button" class="danger" data-key="hide">隐藏键盘</button></div>';
+        grid.innerHTML = html;
+        grid.addEventListener('click', function (e) {
+            var btn = e.target.closest('button[data-key]');
+            if (!btn) return;
+            var k = btn.dataset.key;
+            if (k === 'back') { if (kbTarget) { kbTarget.value = kbTarget.value.slice(0, -1); kbTarget.dispatchEvent(new Event('input')); } }
+            else if (k === 'hide') { hideKeyboard(); }
+            else { if (kbTarget) { kbTarget.value += k; kbTarget.dispatchEvent(new Event('input')); } }
+        });
+    }
+    function showKeyboard(input) { kbTarget = input; var kb = document.getElementById('customKeyboard'); if (kb) kb.classList.add('active'); }
+    function hideKeyboard() { var kb = document.getElementById('customKeyboard'); if (kb) kb.classList.remove('active'); kbTarget = null; }
+
+    /* ============ 本地备注（仅本机 localStorage）============ */
+    function getNote(weldNo) {
+        try { var m = JSON.parse(localStorage.getItem('weldNotes') || '{}'); return m[weldNo] || ''; }
+        catch (e) { return ''; }
+    }
+    function saveNote(weldNo, text) {
+        try {
+            var m = JSON.parse(localStorage.getItem('weldNotes') || '{}');
+            text = (text || '').trim();
+            if (text) m[weldNo] = text; else delete m[weldNo];
+            localStorage.setItem('weldNotes', JSON.stringify(m));
+        } catch (e) {}
+    }
+    function deleteNote(weldNo) {
+        try { var m = JSON.parse(localStorage.getItem('weldNotes') || '{}'); delete m[weldNo]; localStorage.setItem('weldNotes', JSON.stringify(m)); }
+        catch (e) {}
+    }
+    function saveCurrentNote() {
+        var ta = document.getElementById('noteInput');
+        if (!ta) return;
+        saveNote(currentDetail.weld, ta.value);
+        toast('✅ 备注已保存');
+    }
+    function deleteCurrentNote() {
+        var ta = document.getElementById('noteInput');
+        if (!ta) return;
+        deleteNote(currentDetail.weld);
+        ta.value = '';
+        toast('已删除备注');
+    }
+
+    /* ============================================================
+       管道工具：壁厚查询 + 弯头计算器
+       ============================================================ */
+    var WALL_DN = '';
+    var WALL_SCH = '';
+    function byDn(a, b) { return (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0); }
+    function initWallQuery() {
+        if (typeof WALL_DATA === 'undefined') return;
+        buildDnGrids();
+        buildSchGrid();
+        renderWallResult();
+    }
+    function buildDnGrids() {
+        if (typeof WALL_DATA === 'undefined') return;
+        var dns = Object.keys(WALL_DATA).sort(byDn);
+        var small = '', large = '';
+        dns.forEach(function (dn) {
+            var num = parseInt(dn.replace(/\D/g, ''), 10) || 0;
+            var chip = '<button class="dn-chip" data-dn="' + dn + '" onclick="selectWallDN(\'' + dn + '\')">' + dn + '</button>';
+            if (num <= 200) small += chip; else large += chip;
+        });
+        var gs = document.getElementById('dnGridSmall'); if (gs) gs.innerHTML = small;
+        var gl = document.getElementById('dnGridLarge'); if (gl) gl.innerHTML = large;
+        if (WALL_DN) { var el = document.querySelector('[data-dn="' + WALL_DN + '"]'); if (el) el.classList.add('active'); }
+    }
+    function collectSchCodes() {
+        var order = ['SCH5S','SCH10S','SCH40S','SCH80S','SCH10','SCH20','SCH30','STD','SCH40','SCH60','XS','SCH80','SCH100','SCH120','SCH140','SCH160','XXS'];
+        var present = {};
+        if (typeof WALL_DATA !== 'undefined') {
+            Object.keys(WALL_DATA).forEach(function (dn) {
+                var s = (WALL_DATA[dn] && WALL_DATA[dn].rus) || {};
+                Object.keys(s).forEach(function (k) { present[k] = 1; });
+            });
+        }
+        var res = order.filter(function (c) { return present[c]; });
+        Object.keys(present).forEach(function (k) { if (res.indexOf(k) === -1) res.push(k); });
+        return res;
+    }
+    function buildSchGrid() {
+        var codes = collectSchCodes();
+        var html = '';
+        codes.forEach(function (c) {
+            html += '<button class="sch-chip" data-sch="' + c + '" onclick="selectWallSch(\'' + c + '\')">' + c + '</button>';
+        });
+        var g = document.getElementById('schGrid'); if (g) g.innerHTML = html;
+        if (WALL_SCH) { var el = document.querySelector('[data-sch="' + WALL_SCH + '"]'); if (el) el.classList.add('active'); }
+    }
+    function selectWallDN(dn) {
+        WALL_DN = dn;
+        var chips = document.querySelectorAll('#dnGridSmall .dn-chip, #dnGridLarge .dn-chip');
+        chips.forEach(function (c) { c.classList.toggle('active', c.dataset.dn === dn); });
+        renderWallResult();
+    }
+    function selectWallSch(code) {
+        WALL_SCH = code;
+        var chips = document.querySelectorAll('#schGrid .sch-chip');
+        chips.forEach(function (c) { c.classList.toggle('active', c.dataset.sch === code); });
+        renderWallResult();
+    }
+    function renderWallResult() {
+        var area = document.getElementById('wallResultArea');
+        if (!area) return;
+        if (!WALL_DN) {
+            area.innerHTML = "<div class='hint'><span class='big'>📏</span>先选择 DN，再选择壁厚代码，查询钢管外径与壁厚（俄罗斯标准 GOST）</div>";
+            return;
+        }
+        var data = WALL_DATA[WALL_DN];
+        if (!data) return;
+        var html = "<div class='wall-result'>";
+        html += "<div class='wr-head'><span class='wr-title'>" + WALL_DN + "</span><span class='wr-od'>外径 OD：" + (data.od != null ? data.od : '-') + " mm（两标准通用）</span></div>";
+        html += "<div style='font-size:calc(12px*var(--font-scale));color:var(--green-text);background:var(--green-bg);display:inline-block;padding:4px 10px;border-radius:6px;margin:2px 0 10px;'>壁厚标准：俄罗斯标准（GOST）</div>";
+        if (!WALL_SCH) {
+            html += "<div class='hint' style='margin:6px 0;'>已选 " + WALL_DN + "，请选择上方壁厚代码查看厚度</div>";
+        } else {
+            var v = ((data.rus) || {})[WALL_SCH];
+            html += "<div class='wall-result-single'>";
+            html += "<div class='wrs-code'>" + WALL_SCH + "</div>";
+            html += "<div class='wrs-val'>" + (v != null ? v : '—') + "<span class='wrs-unit'>mm</span></div>";
+            html += "</div>";
+        }
+        html += "</div>";
+        area.innerHTML = html;
+    }
+
+    function initBendCalc() {
+        var sel = document.getElementById('bendNps');
+        if (!sel || sel.options.length > 0) return;
+        if (typeof ELBOW_R === 'undefined') return;
+        Object.keys(ELBOW_R).forEach(function (k) {
+            var o = document.createElement('option'); o.value = k; o.textContent = k + '"'; sel.appendChild(o);
+        });
+        sel.value = '4';
+        var ca = document.getElementById('bendCustom'), an = document.getElementById('bendAngle');
+        if (ca) ca.addEventListener('input', function () { if (an.value.trim() !== '' && !isNaN(parseFloat(an.value))) calcBend(); });
+        if (an) { an.addEventListener('input', function () { var v = an.value.trim(); if (v !== '' && !isNaN(parseFloat(v))) calcBend(); }); an.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); calcBend(); } }); }
+        if (sel) sel.addEventListener('change', function () { document.getElementById('bendCustom').value = ''; calcBend(); });
+        calcBend();
+    }
+    function parseNps(str) {
+        if (!str) return null;
+        str = str.trim().replace(/["']/g, '');
+        if (ELBOW_R[str] !== undefined) return { std: true, val: ELBOW_R[str] };
+        var m = str.match(/^(\d+)-(\d+)\/(\d+)$/);
+        if (m) { var fv = parseInt(m[1], 10) + parseInt(m[2], 10) / parseInt(m[3], 10); if (ELBOW_R[fv] !== undefined) return { std: true, val: ELBOW_R[fv] }; return { std: false, val: fv }; }
+        var f = parseFloat(str);
+        if (!isNaN(f) && f > 0) { if (ELBOW_R[f] !== undefined) return { std: true, val: ELBOW_R[f] }; return { std: false, val: f }; }
+        return null;
+    }
+    function fmt(n) { return Number(n.toFixed(2)).toString(); }
+    function showBendErr(msg) {
+        var e = document.getElementById('bendError');
+        if (e) { e.textContent = msg; e.style.display = 'block'; }
+        document.getElementById('bendA').textContent = '—';
+        document.getElementById('bendL').textContent = '—';
+        document.getElementById('bendR').textContent = 'R = —';
+    }
+    function calcBend() {
+        var err = document.getElementById('bendError'); if (err) err.style.display = 'none';
+        var custom = (document.getElementById('bendCustom').value || '').trim();
+        var info = null;
+        if (custom !== '') {
+            info = parseNps(custom);
+            if (!info) { showBendErr('无法解析管径，请输入如 3.5 或 5'); return; }
+        } else {
+            var k = document.getElementById('bendNps').value;
+            info = { std: true, val: ELBOW_R[k] };
+        }
+        var R = info.std ? info.val : (1.5 * info.val * 25.4);
+        var ang = parseFloat(document.getElementById('bendAngle').value);
+        if (isNaN(ang) || ang <= 0 || ang >= 180) { showBendErr('角度需在 0°~180° 之间'); return; }
+        var rad = ang * Math.PI / 180;
+        document.getElementById('bendA').textContent = fmt(R * Math.tan(rad / 2));
+        document.getElementById('bendL').textContent = fmt(R * rad);
+        var badge = document.getElementById('bendR');
+        badge.textContent = 'R = ' + fmt(R) + ' mm' + (info.std ? '' : '（自定义）');
+        if (!info.std) { badge.style.background = '#fff3e0'; badge.style.borderColor = '#ffb74d'; badge.style.color = '#e65100'; }
+        else { badge.style.background = 'var(--bg-card)'; badge.style.borderColor = 'var(--border-light)'; badge.style.color = 'var(--green-primary)'; }
+    }
+    function resetBend() {
+        document.getElementById('bendNps').value = '4';
+        document.getElementById('bendCustom').value = '';
+        document.getElementById('bendAngle').value = '90';
+        calcBend();
+    }
+
+    /* ============ 工作量子页切换 ============ */
+    function switchWorkSub(which) {
+        document.getElementById('subWork').style.display = (which === 'work') ? 'block' : 'none';
+        document.getElementById('subTotal').style.display = (which === 'total') ? 'block' : 'none';
+        document.getElementById('subTabWork').classList.toggle('active', which === 'work');
+        document.getElementById('subTabTotal').classList.toggle('active', which === 'total');
+        if (which === 'total') renderStats();
+    }
+
+    /* ============ 支架 / 阀门（对齐参考APK，数据随库更新）============ */
+    var bracketLocal = [];
+    var valveLocal = [];
+    var BRACKET_KEY = 'bracketLocalData';
+    var VALVE_KEY = 'valveLocalData';
+    function loadBracketLocal() { try { var s = localStorage.getItem(BRACKET_KEY); if (s) bracketLocal = JSON.parse(s) || []; } catch(e){ bracketLocal = []; } }
+    function loadValveLocal() { try { var s = localStorage.getItem(VALVE_KEY); if (s) valveLocal = JSON.parse(s) || []; } catch(e){ valveLocal = []; } }
+    function saveBracketLocal() { try { localStorage.setItem(BRACKET_KEY, JSON.stringify(bracketLocal)); } catch(e){} }
+    function saveValveLocal() { try { localStorage.setItem(VALVE_KEY, JSON.stringify(valveLocal)); } catch(e){} }
+
+    function initBracket() {
+        loadBracketLocal(); renderBracketLocal();
+        bindQuick('bracketQuick', 'bracket', 'bracketInput');
+    }
+    function initValve() {
+        loadValveLocal(); renderValveLocal();
+        bindQuick('valveQuick', 'valve', 'valveInput');
+    }
+    function bindQuick(wrapId, attr, inputId) {
+        var wrap = document.getElementById(wrapId);
+        if (!wrap) return;
+        wrap.querySelectorAll('button').forEach(function (b) {
+            b.onclick = function () { var inp = document.getElementById(inputId); if (inp) { inp.value = b.getAttribute(attr); searchBracketOrValve(attr); } };
+        });
+    }
+    function searchBracketOrValve(attr) {
+        if (attr === 'bracket') searchBracket(); else searchValve();
+    }
+    function renderGenericResult(areaId, data, kind) {
+        var area = document.getElementById(areaId);
+        if (!area) return;
+        if (!data || data.length === 0) {
+            area.innerHTML = "<div class='hint'><span class='big'>📭</span>没有找到匹配的" + kind + "记录</div>";
+            return;
+        }
+        var html = "";
+        data.forEach(function (r) {
+            html += "<div class='result-card'>";
+            Object.keys(r).forEach(function (k) {
+                if (k === '焊接日期' || k === '_local') return;
+                html += "<div class='rc-row'><b>" + k + "：</b>" + (r[k] != null ? r[k] : '-') + "</div>";
+            });
+            html += "</div>";
+        });
+        area.innerHTML = html;
+    }
+    function searchBracket() {
+        var kw = (document.getElementById('bracketInput').value || '').trim().toUpperCase();
+        var ds = (typeof BRACKET_DATA !== 'undefined') ? (BRACKET_DATA || []) : [];
+        var res = ds.filter(function (r) {
+            return Object.keys(r).some(function (k) { return String(r[k] != null ? r[k] : '').toUpperCase().indexOf(kw) > -1; });
+        });
+        renderGenericResult('resultAreaBracket', res, '支架');
+    }
+    function searchValve() {
+        var kw = (document.getElementById('valveInput').value || '').trim().toUpperCase();
+        var ds = (typeof VALVE_DATA !== 'undefined') ? (VALVE_DATA || []) : [];
+        var res = ds.filter(function (r) {
+            return Object.keys(r).some(function (k) { return String(r[k] != null ? r[k] : '').toUpperCase().indexOf(kw) > -1; });
+        });
+        renderGenericResult('resultAreaValve', res, '阀门');
+    }
+    function refreshBracketData() {
+        if (typeof BRACKET_DATA === 'undefined') toast('支架数据需在库中提供（BRACKET_DATA），请联系更新包');
+        else { searchBracket(); toast('✅ 支架数据已加载 ' + BRACKET_DATA.length + ' 条'); }
+    }
+    function refreshValveData() {
+        if (typeof VALVE_DATA === 'undefined') toast('阀门数据需在库中提供（VALVE_DATA），请联系更新包');
+        else { searchValve(); toast('✅ 阀门数据已加载 ' + VALVE_DATA.length + ' 条'); }
+    }
+    function renderBracketLocal() {
+        var tbody = document.getElementById('bracketLocalBody'); if (!tbody) return;
+        if (bracketLocal.length === 0) { tbody.innerHTML = "<tr><td colspan='7' style='text-align:center;color:var(--text-tertiary);padding:16px;'>暂无本地台账，点击「新增支架台账」</td></tr>"; return; }
+        var html = "";
+        bracketLocal.forEach(function (r, i) {
+            html += "<tr>";
+            html += "<td><input value='" + esc(r["位号"] || "") + "' onchange='bracketEdit(" + i + ",\"位号\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["规格"] || "") + "' onchange='bracketEdit(" + i + ",\"规格\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["位置"] || "") + "' onchange='bracketEdit(" + i + ",\"位置\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["状态"] || "") + "' onchange='bracketEdit(" + i + ",\"状态\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["责任人"] || "") + "' onchange='bracketEdit(" + i + ",\"责任人\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["备注"] || "") + "' onchange='bracketEdit(" + i + ",\"备注\",this.value)'></td>";
+            html += "<td><button class='btn-red' style='padding:6px 10px;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:calc(12px*var(--font-scale));' onclick='bracketDelete(" + i + ")'>删除</button></td>";
+            html += "</tr>";
+        });
+        tbody.innerHTML = html;
+    }
+    function renderValveLocal() {
+        var tbody = document.getElementById('valveLocalBody'); if (!tbody) return;
+        if (valveLocal.length === 0) { tbody.innerHTML = "<tr><td colspan='7' style='text-align:center;color:var(--text-tertiary);padding:16px;'>暂无本地台账，点击「新增阀门台账」</td></tr>"; return; }
+        var html = "";
+        valveLocal.forEach(function (r, i) {
+            html += "<tr>";
+            html += "<td><input value='" + esc(r["位号"] || "") + "' onchange='valveEdit(" + i + ",\"位号\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["规格"] || "") + "' onchange='valveEdit(" + i + ",\"规格\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["位置"] || "") + "' onchange='valveEdit(" + i + ",\"位置\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["状态"] || "") + "' onchange='valveEdit(" + i + ",\"状态\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["责任人"] || "") + "' onchange='valveEdit(" + i + ",\"责任人\",this.value)'></td>";
+            html += "<td><input value='" + esc(r["备注"] || "") + "' onchange='valveEdit(" + i + ",\"备注\",this.value)'></td>";
+            html += "<td><button class='btn-red' style='padding:6px 10px;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:calc(12px*var(--font-scale));' onclick='valveDelete(" + i + ")'>删除</button></td>";
+            html += "</tr>";
+        });
+        tbody.innerHTML = html;
+    }
+    function bracketAdd() { bracketLocal.push({ "位号":"", "规格":"", "位置":"", "状态":"未安装", "责任人":getCurrentUser(), "备注":"" }); saveBracketLocal(); renderBracketLocal(); }
+    function valveAdd() { valveLocal.push({ "位号":"", "规格":"", "位置":"", "状态":"未安装", "责任人":getCurrentUser(), "备注":"" }); saveValveLocal(); renderValveLocal(); }
+    function bracketEdit(i, k, v) { if (bracketLocal[i]) { bracketLocal[i][k] = v; saveBracketLocal(); } }
+    function valveEdit(i, k, v) { if (valveLocal[i]) { valveLocal[i][k] = v; saveValveLocal(); } }
+    function bracketDelete(i) { if (confirm('确定删除这条支架台账吗？')) { bracketLocal.splice(i, 1); saveBracketLocal(); renderBracketLocal(); } }
+    function valveDelete(i) { if (confirm('确定删除这条阀门台账吗？')) { valveLocal.splice(i, 1); saveValveLocal(); renderValveLocal(); } }
+
+    /* ============ 初始化 ============ */
+    window.onload = function() {
+        loadPrefs();
+        syncSettingsUI();
+        currentUser = getCurrentUser();
+        updateUserBadge();
+        try {
+            var cv = document.getElementById('currentVersion'); if (cv) cv.innerText = APP_VERSION;
+            var sv = document.getElementById('setVersion'); if (sv) sv.innerText = APP_VERSION;
+        } catch(e){}
+        buildKeyboard();
+        var kw = document.getElementById('keyword');
+        if (kw) kw.addEventListener('focus', function () { showKeyboard(kw); });
+        if (typeof weldData === "undefined") {
+            document.getElementById('resultArea').innerHTML = "<div class='hint'><span class='big'>❌</span>数据未加载：请检查 data.js 文件是否存在</div>";
+            return;
+        }
+        if (!Array.isArray(weldData) || weldData.length === 0) {
+            document.getElementById('resultArea').innerHTML = "<div class='hint'><span class='big'>⚠️</span>data.js 已加载，但焊口数据为空</div>";
+            return;
+        }
+        document.getElementById('keyword').focus();
+        updateStatsAll();
+        updateStats(weldData);   // 初始显示全部口径的已焊/未焊统计
+    };
+
+    document.addEventListener('DOMContentLoaded', function(){
+        var kw = document.getElementById('keyword');
+        if (kw) kw.addEventListener('keydown', function(e){ if (e.key === 'Enter') doSearch(); });
+        var dp = document.getElementById('wbDateStart');
+        if (dp) dp.addEventListener('change', function(){ renderWbTable(); updateWbStats(); });
+        var de = document.getElementById('wbDateEnd');
+        if (de) de.addEventListener('change', function(){ renderWbTable(); updateWbStats(); });
+        document.addEventListener('touchstart', function (e) {
+            var kb = document.getElementById('customKeyboard');
+            if (!kb || !kb.classList.contains('active')) return;
+            if (kb.contains(e.target)) return;
+            if (e.target && e.target.id === 'keyword') return;
+            hideKeyboard();
+        }, true);
+    });
+</script>
+</body>
+</html>
