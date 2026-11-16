@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>管道数据查询</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- 加载遮罩 -->
+<div id="loading" class="loading">
+  <div class="loading-box">
+    <div class="loading-icon">⚙</div>
+    <div class="loading-title">管道数据查询</div>
+    <div class="loading-sub" id="loadingMsg">正在加载数据…</div>
+    <div class="loading-bar"><div class="loading-bar-in" id="loadingBar"></div></div>
+  </div>
+</div>
+
+<div id="app" class="app">
+
+  <!-- 顶部栏 -->
+  <header class="topbar">
+    <div class="top-left"><span class="online-box"><span class="tick">✓</span> 在线</span></div>
+    <div class="top-title" id="pageTitle">管线</div>
+    <div class="top-right" id="topRight">
+      <button class="name-btn" id="nameBtn">👤 设置姓名</button>
+    </div>
+  </header>
+
+  <!-- ============ 页面容器 ============ -->
+  <main class="pages">
+
+    <!-- 管线页 -->
+    <section class="page active" id="page-pipeline">
+      <div class="field-row">
+        <label>子项号：</label>
+        <select id="areaSelect" class="sel"><option value="">全部</option></select>
+      </div>
+      <div class="search-row">
+        <input id="kwInput" type="text" placeholder="输入管线号或点下方按键" autocomplete="off">
+        <button id="btnSearch" class="btn-green">查询</button>
+      </div>
+      <button id="btnRefresh" class="btn-refresh"><span class="refresh-ico">🔄</span> 刷新管线数据</button>
+
+      <div class="quick">
+        <div class="quick-head">
+          <span class="quick-title"><span class="kbd-ico">⌨</span> 快捷输入</span>
+          <button id="btnClear" class="btn-clear">清空</button>
+        </div>
+        <div class="keys" id="keys"></div>
+      </div>
+
+      <div class="result" id="pipeResult">
+        <div class="result-empty" id="pipeEmpty">
+          <div class="empty-ico">📋</div>
+          <div class="empty-main" id="pipeEmptyMain">输入管线号开始查询</div>
+          <div class="empty-sub">共 <span id="pipeCount2">—</span> 条管线数据</div>
+        </div>
+        <div id="pipeList" class="card-list"></div>
+      </div>
+    </section>
+
+    <!-- 支架页（蓝色主题） -->
+    <section class="page page-blue" id="page-support">
+      <div class="note-entry-bar">
+        <button id="openNoteConsole" class="btn-note-console">📒 备注控制台 <span id="noteCountBadge" class="note-badge">0</span></button>
+        <span class="note-entry-hint">支架后填备注并上传，电脑端可在控制台导出Excel</span>
+      </div>
+      <div class="quick-prefix" id="supportPrefix"></div>
+      <div class="search-row">
+        <input id="supportKw" type="text" placeholder="输入支架编号开始查询" autocomplete="off">
+        <button id="supportSearch" class="btn-blue">查支架</button>
+      </div>
+
+      <div class="result" id="supportResult">
+        <div class="result-empty" id="supportEmpty">
+          <div class="empty-ico">🔧</div>
+          <div class="empty-main">输入支架号开始查询</div>
+          <div class="empty-sub">共 <span id="supportCount">—</span> 条支架数据</div>
+        </div>
+        <div id="supportList" class="card-list"></div>
+      </div>
+
+      <button id="supportRefresh" class="btn-refresh-blue"><span class="refresh-ico">🔄</span> 刷新支架数据</button>
+
+      <div class="overview">
+        <div class="overview-title">🔧 支架总览</div>
+        <div id="supportOverview"></div>
+      </div>
+    </section>
+
+    <!-- 阀门页（青色主题） -->
+    <section class="page page-teal" id="page-valve">
+      <div class="search-row">
+        <input id="valveKw" type="text" placeholder="输入阀门位号，如 565-GV-0026" autocomplete="off">
+        <button id="valveSearch" class="btn-teal">查阀门</button>
+      </div>
+      <div id="valvePrefix" class="quick-prefix teal-prefix"></div>
+      <!-- 空状态 -->
+      <div id="valveEmpty">
+        <div class="ve-empty"><div class="ve-ico">🚪</div><div class="ve-main">输入阀门位号开始查询</div><div class="ve-sub">共 1,400 个阀门数据</div></div>
+        <button id="valveRefresh" class="btn-refresh-teal">🔄 刷新阀门数据</button>
+        <div class="ov-title">🚚 阀门到货总览</div>
+        <div class="ov-box" id="valveArrival"></div>
+        <div class="ov-title">🚪 阀门总量</div>
+        <div class="ov-box" id="valveInstall"></div>
+      </div>
+      <!-- 查询结果（按规格明细） -->
+      <div id="valveResult" style="display:none">
+        <div class="spec-head">📋 按规格明细（已安装 / 已到货 / 未到货）</div>
+        <div class="search-row spec-search">
+          <input id="valveSpecKw" type="text" placeholder="输入阀门代码或直径搜索" autocomplete="off">
+          <span class="spec-search-ico">🔍</span>
+        </div>
+        <div id="valveSpecList"></div>
+      </div>
+    </section>
+
+    <!-- 壁厚页（壁厚查询器 + 弯头计算器） -->
+    <section class="page page-wall" id="page-thick">
+      <!-- 功能1：壁厚规格查询 -->
+      <div class="wall-group">
+        <div id="dnSmall" class="dn-grid"></div>
+        <div class="wall-glabel">小口径 DN65–DN200</div>
+        <div id="dnMid" class="dn-grid"></div>
+        <div class="wall-glabel">大口径 DN250–DN1000</div>
+        <div id="dnLarge" class="dn-grid"></div>
+      </div>
+      <div class="wall-tip">💡 选择壁厚代码</div>
+      <div id="schGrid" class="sch-grid"></div>
+      <!-- 规格结果 -->
+      <div class="wall-result" id="wallResult">
+        <div class="wr-col"><div class="wr-label">公称直径</div><div class="wr-val" id="wrDn">DN32 <span>mm</span></div></div>
+        <div class="wr-col"><div class="wr-label">外径</div><div class="wr-val" id="wrOd">42.2 <span>mm</span></div></div>
+        <div class="wr-col"><div class="wr-label">壁厚代码</div><div class="wr-val" id="wrSch">SCH10S</div></div>
+        <div class="wr-col"><div class="wr-label">壁厚</div><div class="wr-val" id="wrThk">2.77 <span>mm</span></div></div>
+      </div>
+      <!-- 功能2：弯头计算器 -->
+      <div class="elbow-card">
+        <div class="elbow-title">⚙️ 弯头计算器 <span class="elbow-badge">1.5D</span></div>
+        <div class="elbow-sub">ASME B16.9 长半径 · 任意角度 · 支持自定义管径</div>
+        <div class="elbow-field">
+          <label>📋 选择标准公称尺寸（NPS）</label>
+          <select id="elbowNps" class="elbow-sel"></select>
+        </div>
+        <div class="elbow-field">
+          <label>✏️ 或手动输入公称尺寸</label>
+          <input id="elbowManual" type="text" placeholder="例如: 1-1/4, 2.5, 4, 6" autocomplete="off">
+        </div>
+        <div class="elbow-field">
+          <label>📐 弯头角度 (°)</label>
+          <input id="elbowAngle" type="number" value="90" placeholder="90">
+        </div>
+        <div class="elbow-btns">
+          <button id="elbowCalc" class="btn-elbow">计算</button>
+          <button id="elbowReset" class="btn-elbow reset">重置</button>
+        </div>
+        <div class="elbow-result" id="elbowResult">
+          <div class="er-head"><span>📊 计算结果</span><span class="er-r" id="erR">R = — mm</span></div>
+          <div class="er-grid">
+            <div class="er-box"><div class="er-l">🔹 中心到端面 A</div><div class="er-v" id="erA">— <span>mm</span></div></div>
+            <div class="er-box"><div class="er-l">📐 弧长 L</div><div class="er-v" id="erL">— <span>mm</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 工作量页（工作量 / 总量 两个子tab） -->
+    <section class="page page-work" id="page-work">
+      <div class="work-tabs">
+        <button class="work-tab active" data-wtab="daily">工作量</button>
+        <button class="work-tab" data-wtab="total">总量</button>
+      </div>
+
+      <!-- 子tab1：工作量（日期范围汇总） -->
+      <div id="workDaily">
+        <div class="wk-title">📅 日期范围汇总</div>
+        <div class="date-range">
+          <input type="date" id="dateFrom" class="date-in">
+          <span class="date-sep">~</span>
+          <input type="date" id="dateTo" class="date-in">
+          <button id="dateQuery" class="btn-green">查询</button>
+        </div>
+        <div class="wk-card">
+          <div class="wk-card-head"><span>当日合计</span><span class="wk-date" id="wkDate">—</span></div>
+          <div id="wkDailyStat"></div>
+        </div>
+        <div class="people-row" id="wkPeople"></div>
+        <div id="wkGroups"></div>
+      </div>
+
+      <!-- 子tab2：总量（各工区总量） -->
+      <div id="workTotal" style="display:none">
+        <div class="wk-title">📋 各工区总量</div>
+        <div class="wk-card">
+          <div class="wk-card-head"><span>总合计</span><span class="wk-date">全部工区</span></div>
+          <div id="wkGrand"></div>
+        </div>
+        <div id="wkAreaList"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 底部导航 -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab-item" data-page="work"><span class="ti-ico">📊</span><span>工作量</span></button>
+    <button class="tab-item active" data-page="pipeline"><span class="ti-ico">🛢️</span><span>管线</span></button>
+    <button class="tab-item" data-page="support"><span class="ti-ico">🏗️</span><span>支架</span></button>
+    <button class="tab-item" data-page="valve"><span class="ti-ico">🎛️</span><span>阀门</span></button>
+    <button class="tab-item" data-page="thick"><span class="ti-ico">📏</span><span>壁厚</span></button>
+  </nav>
+
+</div>
+
+<!-- 详情弹层 -->
+<div id="detailMask" class="detail-mask"></div>
+<div id="detailPanel" class="detail-panel">
+  <div class="detail-head">
+    <div class="detail-title" id="detailTitle">详情</div>
+    <button id="detailClose" class="detail-close">✕</button>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
+<!-- 备注控制台弹层 -->
+<div id="noteMask" class="detail-mask"></div>
+<div id="notePanel" class="detail-panel note-panel">
+  <div class="detail-head">
+    <div class="detail-title" id="noteTitle">📒 支架备注控制台</div>
+    <button id="noteClose" class="detail-close">✕</button>
+  </div>
+  <div class="note-tools">
+    <button id="noteRefresh" class="nt-btn">🔄 刷新</button>
+    <button id="noteExport" class="nt-btn primary">⬇️ 导出Excel</button>
+  </div>
+  <div class="note-status" id="noteStatus">正在连接云端…</div>
+  <div class="note-body" id="noteBody"></div>
+</div>
+
+<!-- 云服务 SDK（CDN，无构建） -->
+<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+<script>
+  // 云端公开配置（publishableKey 本身无权限，服务端按 Origin 校验）
+  window.CLOUD_CONFIG = {
+    endpoint: "https://wbapp-rvigd9aztczj5nwlcx5zin.app.workbuddy.host",
+    oauthRelayBaseUrl: "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
+    publishableKey: "wbpk_rvIgd9AZTCzJ5nwLcx5ziN_RMict5EDZp5wgdqfzhssy6JmzgopiZJ9"
+  };
+</script>
+<script src="data/pipeline.js"></script>
+<script src="data/support.js"></script>
+<script src="data/valve.js"></script>
+<script src="data/wall.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
