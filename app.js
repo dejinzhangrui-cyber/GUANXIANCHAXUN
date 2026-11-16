@@ -976,8 +976,14 @@ function bind(){
   $('supportList').addEventListener('click',e=>{
     const dw=e.target.closest('[data-drawing]');
     if(dw){ e.stopPropagation(); alert('图纸文件：'+dw.dataset.drawing+'\n\n请用图纸工具箱打开。'); return; }
-    const sv=e.target.closest('[data-save-note]');
-    if(sv){ e.stopPropagation(); saveNote(sv.dataset.saveNote); return; }
+    // 备注区内的任何点击都不打开详情（输入框/按钮）
+    const cn=e.target.closest('.cloud-note');
+    if(cn){
+      e.stopPropagation();
+      const sv=e.target.closest('[data-save-note]');
+      if(sv) saveNote(sv.dataset.saveNote);
+      return;
+    }
     const card=e.target.closest('.support-card');
     if(card) openDetail('support', +card.dataset.i);
   });
