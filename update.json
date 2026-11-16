@@ -1,0 +1,21 @@
+{
+  "version": "202611151708",
+  "time": "2026-11-16 09:29",
+  "files": [
+    {
+      "kind": "pipe",
+      "file": "pipe.json",
+      "rows": 33427
+    },
+    {
+      "kind": "valve",
+      "file": "valve.json",
+      "rows": 1400
+    },
+    {
+      "kind": "support",
+      "file": "support.json",
+      "rows": 5014
+    }
+  ]
+}
