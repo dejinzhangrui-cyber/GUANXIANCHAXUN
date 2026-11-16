@@ -8,19 +8,18 @@ const V = window.VALVE_DATA    || {cols:[],rows:[]};
 const WALL = window.WALL_DATA || [];
 const WALL_CODES = window.WALL_CODES || [];
 
-// 云端客户端（CDN SDK）
-let cloud = null, cloudReady = false;
-function initCloud(){
+// 云端备注 API（EdgeOne Pages Function /api/notes）；本地打开时不存在则离线降级
+let cloudReady = false;
+const NOTES_API = '/api/notes';
+async function initCloud(){
+  // 本地 file:// 打开时没有 /api，直接离线
+  if(location.protocol === 'file:'){ cloudReady = false; return false; }
   try{
-    if(!window.WorkBuddyCloud || !window.CLOUD_CONFIG){ return false; }
-    cloud = window.WorkBuddyCloud.createWorkBuddyCloud({
-      endpoint: window.CLOUD_CONFIG.endpoint,
-      oauthRelayBaseUrl: window.CLOUD_CONFIG.oauthRelayBaseUrl,
-      publishableKey: window.CLOUD_CONFIG.publishableKey
-    });
-    cloudReady = !!cloud && !!cloud.database;
-    return cloudReady;
-  }catch(e){ console.error('cloud init', e); return false; }
+    const res = await fetch(NOTES_API, { method:'GET' });
+    if(res.ok){ const j = await res.json(); cloudReady = !!(j && j.ok); return cloudReady; }
+  }catch(e){ /* 无 API，离线模式 */ }
+  cloudReady = false;
+  return false;
 }
 // 本地缓存（离线兜底显示，真正数据以云端为准）
 let notesCache = {}; // support_no -> note row
@@ -385,40 +384,44 @@ function renderSupportOverview(){
     `<div class="ov-note">* 统计数据基于当前 Excel 的「数据库状态 / RFI状态 / 安装日期 / 焊接日期」列；到货、领用等细分状态原表无对应字段。</div>`;
 }
 
-/* ---------- 云端支架备注 ---------- */
+/* ---------- 云端支架备注（EdgeOne Pages KV） ---------- */
 function cloudMsg(t){ const el=$('noteStatus'); if(el) el.textContent=t; toast(t); }
+async function apiFetch(opt){
+  const res=await fetch(NOTES_API, opt);
+  const j=await res.json().catch(()=>({}));
+  if(!res.ok || j.error) throw new Error(j.error||('HTTP '+res.status));
+  return j;
+}
 // 加载全部备注到缓存
 async function loadNotes(){
-  if(!cloudReady){ cloudMsg('云端未连接，请在线打开'); return []; }
-  const {data,error}=await cloud.database.from('support_notes').select('*').order('updated_at',{ascending:false});
-  if(error){ cloudMsg('加载失败：'+error.message); return []; }
-  notesCache={};
-  (data||[]).forEach(n=>{ notesCache[n.support_no]={note:n.note,location:n.location||'',savedAt:fmtDate(n.updated_at||n.created_at),id:n.id,owner_name:n.owner_name||''}; });
-  updateNoteBadge(data?data.length:0);
-  return data||[];
+  if(!cloudReady){ cloudMsg('云端未连接，请用在线网址打开'); return []; }
+  try{
+    const j=await apiFetch({method:'GET'});
+    const data=j.notes||[];
+    notesCache={};
+    data.forEach(n=>{ notesCache[n.support_no]={note:n.note,location:n.location||'',savedAt:fmtDate(n.updated_at||n.created_at),owner_name:n.owner_name||''}; });
+    updateNoteBadge(data.length);
+    return data;
+  }catch(e){ cloudMsg('加载失败：'+e.message); return []; }
 }
 function fmtDate(s){ if(!s) return ''; const d=new Date(s); if(isNaN(d)) return String(s); return d.toLocaleString('zh-CN',{hour12:false}).replace(/\//g,'-'); }
 function updateNoteBadge(n){ const b=$('noteCountBadge'); if(b) b.textContent=n; }
-// 保存一条备注（同一支架编号有则更新，无则新增）
+// 保存一条备注（KV 用支架编号当 key，天然覆盖更新）
 async function saveNote(no){
-  if(!cloudReady){ cloudMsg('云端未连接，请在线打开'); return; }
+  if(!cloudReady){ cloudMsg('云端未连接，请用在线网址打开'); return; }
   let card=null;
   document.querySelectorAll('.cloud-note').forEach(el=>{ if(el.dataset.no===no) card=el; });
   if(!card) return;
   const note=(card.querySelector('.cn-note').value||'').trim();
   const location=(card.querySelector('.cn-loc').value||'').trim();
+  const owner=(localStorage.getItem('pipeUser')||'').trim();
   if(!note){ cloudMsg('请先填写备注内容'); return; }
   const btn=card.querySelector('.cn-save'); btn.disabled=true; btn.textContent='上传中…';
-  // 从支架数据补全元数据
   const row=S.rows.find(r=>String(r[idx.sNo]||'')===no) || {};
-  const payload={ support_no:no, note, location, iso_no:String(row[idx.sIso]||''), line_no:String(row[idx.sLine]||''), area:String(row[idx.sArea]||''), updated_at:new Date().toISOString() };
+  const payload={ support_no:no, note, location, iso_no:String(row[idx.sIso]||''), line_no:String(row[idx.sLine]||''), area:String(row[idx.sArea]||''), owner_name:owner };
   try{
-    const existing=notesCache[no];
-    let res;
-    if(existing && existing.id){ res=await cloud.database.from('support_notes').update({note,location,updated_at:payload.updated_at}).eq('id',existing.id).select(); }
-    else { res=await cloud.database.from('support_notes').insert(payload).select(); }
-    if(res.error){ cloudMsg('上传失败：'+res.error.message); }
-    else { cloudMsg('✓ 已保存到云端'); await loadNotes(); doSupportQueryKeepKw(); }
+    await apiFetch({method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+    cloudMsg('✓ 已保存到云端'); await loadNotes(); doSupportQueryKeepKw();
   }catch(e){ cloudMsg('上传失败：'+e.message); }
   finally{ btn.disabled=false; btn.textContent='保存上传'; }
 }
@@ -437,7 +440,7 @@ async function renderNoteConsole(){
   const rows=await loadNotes();
   if(!rows.length){ body.innerHTML='<div class="nc-empty">📭 还没有备注。在支架卡片里填写并上传后，会显示在这里。</div>'; $('noteStatus').textContent='共 0 条备注'; return; }
   body.innerHTML=rows.map(n=>`<div class="nc-card">
-    <div class="nc-head"><span class="nc-no">🔧 ${esc(n.support_no||'')}</span><button class="nc-del" data-del-note="${n.id}">删除</button></div>
+    <div class="nc-head"><span class="nc-no">🔧 ${esc(n.support_no||'')}</span><button class="nc-del" data-del-note="${esc(n.support_no||'')}">删除</button></div>
     <div class="nc-line"><span>区域</span><b>${esc(n.area||'—')}</b></div>
     <div class="nc-line"><span>管线号</span><b>${esc(n.line_no||'—')}</b></div>
     <div class="nc-line"><span>备注</span><b class="nc-note-txt">${esc(n.note||'')}</b></div>
@@ -449,25 +452,27 @@ async function renderNoteConsole(){
 // 导出 CSV（Excel 可直接打开，带 BOM 防中文乱码）
 async function exportNotes(){
   if(!cloudReady){ cloudMsg('云端未连接'); return; }
-  const {data,error}=await cloud.database.from('support_notes').select('*').order('updated_at',{ascending:false});
-  if(error){ cloudMsg('导出失败：'+error.message); return; }
-  if(!data||!data.length){ cloudMsg('没有备注可导出'); return; }
-  const head=['支架编号','区域','管线号','图号','备注内容','位置','录入人','录入时间'];
-  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const lines=[head.map(q).join(',')];
-  data.forEach(n=>lines.push([n.support_no,n.area,n.line_no,n.iso_no,n.note,n.location,n.owner_name,fmtDate(n.updated_at||n.created_at)].map(q).join(',')));
-  const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
-  const url=URL.createObjectURL(blob); const a=document.createElement('a');
-  a.href=url; a.download='支架备注_'+new Date().toISOString().slice(0,10)+'.csv';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  cloudMsg('已导出 '+data.length+' 条备注');
+  try{
+    const j=await apiFetch({method:'GET'}); const data=j.notes||[];
+    if(!data.length){ cloudMsg('没有备注可导出'); return; }
+    const head=['支架编号','区域','管线号','图号','备注内容','位置','录入人','录入时间'];
+    const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+    const lines=[head.map(q).join(',')];
+    data.forEach(n=>lines.push([n.support_no,n.area,n.line_no,n.iso_no,n.note,n.location,n.owner_name,fmtDate(n.updated_at||n.created_at)].map(q).join(',')));
+    const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download='支架备注_'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    cloudMsg('已导出 '+data.length+' 条备注');
+  }catch(e){ cloudMsg('导出失败：'+e.message); }
 }
-async function deleteNote(id){
-  if(!id) return;
-  if(!confirm('确定删除这条备注？此操作不可恢复。')) return;
-  const {error}=await cloud.database.from('support_notes').delete().eq('id',id).select();
-  if(error){ cloudMsg('删除失败：'+error.message); return; }
-  cloudMsg('已删除'); await loadNotes(); await renderNoteConsole(); doSupportQueryKeepKw();
+async function deleteNote(no){
+  if(!no) return;
+  if(!confirm('确定删除支架 '+no+' 的备注？此操作不可恢复。')) return;
+  try{
+    await apiFetch({method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({support_no:no})});
+    cloudMsg('已删除'); await loadNotes(); await renderNoteConsole(); doSupportQueryKeepKw();
+  }catch(e){ cloudMsg('删除失败：'+e.message); }
 }
 
 /* ---------- 壁厚规格查询器 ---------- */
@@ -1034,9 +1039,8 @@ function init(){
   const saved=localStorage.getItem('pipeUser'); if(saved) $('nameBtn').textContent='👤 '+saved;
   $('pageTitle').textContent='管线';
   $('topRight').style.visibility='visible';
-  // 云端备注：初始化并异步加载（本地file://打开时SDK可能不可用，静默降级为离线查询）
-  cloudReady=initCloud();
-  if(cloudReady) loadNotes().catch(()=>{});
+  // 云端备注：探测 /api/notes 是否可用（本地file://打开时自动离线降级）
+  initCloud().then(ok=>{ if(ok) loadNotes().catch(()=>{}); }).catch(()=>{});
 }
 function boot(){
   $('loadingMsg').textContent='正在解析数据（约 23 MB），请稍候…';

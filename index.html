@@ -240,16 +240,7 @@
   <div class="note-body" id="noteBody"></div>
 </div>
 
-<!-- 云服务 SDK（CDN，无构建） -->
-<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
-<script>
-  // 云端公开配置（publishableKey 本身无权限，服务端按 Origin 校验）
-  window.CLOUD_CONFIG = {
-    endpoint: "https://wbapp-rvigd9aztczj5nwlcx5zin.app.workbuddy.host",
-    oauthRelayBaseUrl: "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
-    publishableKey: "wbpk_rvIgd9AZTCzJ5nwLcx5ziN_RMict5EDZp5wgdqfzhssy6JmzgopiZJ9"
-  };
-</script>
+<!-- 数据存储：EdgeOne Pages Function /api/notes 读写 KV，无需前端 SDK -->
 <script src="data/pipeline.js"></script>
 <script src="data/support.js"></script>
 <script src="data/valve.js"></script>
