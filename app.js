@@ -11,11 +11,20 @@ const WALL_CODES = window.WALL_CODES || [];
 // 云端备注 API（EdgeOne Pages Function /api/notes）；本地打开时不存在则离线降级
 let cloudReady = false;
 const NOTES_API = '/api/notes';
+// EdgeOne 预览链接靠 URL 上的 eo_token/eo_time 鉴权，API 请求必须原样带上，否则 401
+function notesUrl(){
+  try{
+    const q = new URLSearchParams(location.search);
+    const t = q.get('eo_token'), tm = q.get('eo_time');
+    if(t) return NOTES_API + '?eo_token=' + encodeURIComponent(t) + (tm ? '&eo_time=' + encodeURIComponent(tm) : '');
+  }catch(e){}
+  return NOTES_API;
+}
 async function initCloud(){
   // 本地 file:// 打开时没有 /api，直接离线
   if(location.protocol === 'file:'){ cloudReady = false; return false; }
   try{
-    const res = await fetch(NOTES_API, { method:'GET' });
+    const res = await fetch(notesUrl(), { method:'GET' });
     if(res.ok){ const j = await res.json(); cloudReady = !!(j && j.ok); return cloudReady; }
   }catch(e){ /* 无 API，离线模式 */ }
   cloudReady = false;
@@ -387,7 +396,7 @@ function renderSupportOverview(){
 /* ---------- 云端支架备注（EdgeOne Pages KV） ---------- */
 function cloudMsg(t){ const el=$('noteStatus'); if(el) el.textContent=t; toast(t); }
 async function apiFetch(opt){
-  const res=await fetch(NOTES_API, opt);
+  const res=await fetch(notesUrl(), opt);
   const j=await res.json().catch(()=>({}));
   if(!res.ok || j.error) throw new Error(j.error||('HTTP '+res.status));
   return j;
