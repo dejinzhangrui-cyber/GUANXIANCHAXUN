@@ -26,16 +26,32 @@ export async function onRequest({ request, env }) {
   try {
     if (method === 'GET') {
       // 遍历全部 key，读出所有备注
+      // 注意：EdgeOne KV list() 的 cursor 必须是字符串，首次调用不能传 undefined
       const items = [];
-      let cursor = undefined;
-      do {
-        const page = await kv.list({ prefix: 'note_', limit: 256, cursor });
-        for (const k of page.keys || []) {
-          const v = await kv.get(k.key, 'json');
-          if (v) items.push(v);
+      let cursor = '';
+      try {
+        do {
+          const opt = { prefix: 'note_', limit: 256 };
+          if (cursor) opt.cursor = cursor;
+          const page = await kv.list(opt);
+          for (const k of page.keys || []) {
+            const v = await kv.get(k.key, 'json');
+            if (v) items.push(v);
+          }
+          cursor = page.complete ? '' : (page.cursor || '');
+        } while (cursor);
+      } catch (le) {
+        // list 异常时兜底：读 note_index 里记录的 key 列表
+        let idx = [];
+        try { idx = await kv.get('note_index', 'json') || []; } catch (e2) { idx = []; }
+        if (Array.isArray(idx)) {
+          for (const key of idx) {
+            if (key === 'note_index') continue;
+            const v = await kv.get(key, 'json');
+            if (v) items.push(v);
+          }
         }
-        cursor = page.complete ? undefined : page.cursor;
-      } while (cursor);
+      }
       items.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
       return json({ ok: true, notes: items });
     }
