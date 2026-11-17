@@ -1,0 +1,11 @@
+{
+  "name": "pipe-query-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "管道数据查询 - Android 打包依赖（由 GitHub Actions 复制为 package.json 使用）",
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0"
+  }
+}

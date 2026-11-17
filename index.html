@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>管道数据查询</title>
 <link rel="stylesheet" href="app.css">
+<script>
+  // APK 打包时可在下面填入腾讯云「域名管理」里的正式域名；网页版留空自动用当前网址
+  window.APP_CONFIG = { apiBase: '' };
+</script>
 </head>
 <body>
 
@@ -25,7 +29,7 @@
     <div class="top-left"><span class="online-box"><span class="tick">✓</span> 在线</span></div>
     <div class="top-title" id="pageTitle">管线</div>
     <div class="top-right" id="topRight">
-      <button class="name-btn" id="nameBtn">👤 设置姓名</button>
+      <button class="name-btn" id="nameBtn">⚙️ 设置</button>
     </div>
   </header>
 
@@ -43,6 +47,7 @@
         <button id="btnSearch" class="btn-green">查询</button>
       </div>
       <button id="btnRefresh" class="btn-refresh"><span class="refresh-ico">🔄</span> 刷新管线数据</button>
+      <button class="btn-import" data-import="pipeline">📥 导入新表格 · 更新管线数据并同步</button>
 
       <div class="quick">
         <div class="quick-head">
@@ -84,6 +89,7 @@
       </div>
 
       <button id="supportRefresh" class="btn-refresh-blue"><span class="refresh-ico">🔄</span> 刷新支架数据</button>
+      <button class="btn-import" data-import="support">📥 导入新表格 · 更新支架数据并同步</button>
 
       <div class="overview">
         <div class="overview-title">🔧 支架总览</div>
@@ -98,6 +104,7 @@
         <button id="valveSearch" class="btn-teal">查阀门</button>
       </div>
       <div id="valvePrefix" class="quick-prefix teal-prefix"></div>
+      <button class="btn-import" data-import="valve">📥 导入新表格 · 更新阀门数据并同步</button>
       <!-- 空状态 -->
       <div id="valveEmpty">
         <div class="ve-empty"><div class="ve-ico">🚪</div><div class="ve-main">输入阀门位号开始查询</div><div class="ve-sub">共 1,400 个阀门数据</div></div>
@@ -169,6 +176,7 @@
 
     <!-- 工作量页（工作量 / 总量 两个子tab） -->
     <section class="page page-work" id="page-work">
+      <button id="openWorkConsole" class="btn-work-console">🗂️ 工作台 · 数据管理 <span id="workCountBadge" class="note-badge">0</span></button>
       <div class="work-tabs">
         <button class="work-tab active" data-wtab="daily">工作量</button>
         <button class="work-tab" data-wtab="total">总量</button>
@@ -240,11 +248,80 @@
   <div class="note-body" id="noteBody"></div>
 </div>
 
+<!-- 工作量 · 数据管理控制台弹层 -->
+<div id="workMask" class="detail-mask"></div>
+<div id="workPanel" class="detail-panel work-panel">
+  <div class="wc-head">
+    <div class="wc-title">📊 控制台 · 数据管理</div>
+    <div class="wc-head-btns">
+      <button id="workExport" class="wc-export">⬇️ 导出 Excel</button>
+      <button id="workClose" class="wc-exit">退出控制台</button>
+    </div>
+  </div>
+  <div class="wc-filter">
+    <label>日期筛选:</label>
+    <input type="date" id="wfFrom" class="wc-date">
+    <span class="wc-sep">~</span>
+    <input type="date" id="wfTo" class="wc-date">
+    <button id="wfQuery" class="wc-btn blue">🔍 查询</button>
+    <button id="wfClear" class="wc-btn gray">清除筛选</button>
+  </div>
+  <div class="wc-filter">
+    <label>统一日期:</label>
+    <input type="date" id="wfUnify" class="wc-date">
+    <button id="wfApplyDate" class="wc-btn blue">应用到当前所有行</button>
+  </div>
+  <div class="wc-status" id="workStatus"></div>
+  <div class="wc-scroll" id="workScroll">
+    <table class="wc-table">
+      <thead id="workThead"></thead>
+      <tbody id="workTbody"></tbody>
+      <tfoot id="workTfoot"></tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- 设置弹层（姓名 / 服务器地址 / 数据版本） -->
+<div id="cfgMask" class="detail-mask"></div>
+<div id="cfgPanel" class="detail-panel cfg-panel">
+  <div class="detail-head">
+    <div class="detail-title">⚙️ 设置</div>
+    <button id="cfgClose" class="detail-close">✕</button>
+  </div>
+  <div class="cfg-body">
+    <label class="cfg-label">姓名（备注 / 台账的录入人）</label>
+    <input id="cfgName" class="cfg-in" placeholder="例如：张三">
+    <label class="cfg-label">服务器地址</label>
+    <input id="cfgApi" class="cfg-in" placeholder="https://你的正式域名">
+    <div class="cfg-tip">网页版留空即可自动使用当前网址。<b>APK 首次使用必须填</b>：腾讯云控制台 → Pages → 项目 guanxianchaxun → 域名管理，复制那个不带 eo_token 的正式网址。</div>
+    <button id="cfgSave" class="btn-green cfg-save">保存设置</button>
+    <div class="cfg-divider"></div>
+    <div class="cfg-sec">📦 云端数据版本</div>
+    <div id="cfgVersion" class="cfg-ver">读取中…</div>
+    <div class="cfg-btns">
+      <button id="cfgCheck" class="nt-btn primary">🔄 检查并拉取最新数据</button>
+      <button id="cfgReset" class="nt-btn">恢复内置数据</button>
+    </div>
+    <div class="cfg-tip">所有手机打开 APP 时会自动检查新数据；也可以在这里手动点「检查并拉取」。</div>
+  </div>
+</div>
+
+<!-- 导入进度浮层 -->
+<div id="importMask" class="import-mask">
+  <div class="import-box">
+    <div class="import-title">📥 正在更新数据…</div>
+    <div class="import-sub" id="importMsg">准备中</div>
+    <div class="import-bar"><div class="import-bar-in" id="importBar"></div></div>
+  </div>
+</div>
+<input type="file" id="excelFile" accept=".xlsx,.xls" style="display:none">
+
 <!-- 数据存储：EdgeOne Pages Function /api/notes 读写 KV，无需前端 SDK -->
 <script src="data/pipeline.js"></script>
 <script src="data/support.js"></script>
 <script src="data/valve.js"></script>
 <script src="data/wall.js"></script>
+<script src="vendor/pako.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

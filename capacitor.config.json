@@ -1,0 +1,13 @@
+{
+  "appId": "com.guanxian.chaxun",
+  "appName": "管道数据查询",
+  "webDir": "www",
+  "loggingLevel": "error",
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

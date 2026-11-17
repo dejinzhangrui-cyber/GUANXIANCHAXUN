@@ -2,36 +2,52 @@
 (function(){
 'use strict';
 
-const P = window.PIPELINE_DATA || {cols:[],rows:[]};
-const S = window.SUPPORT_DATA  || {cols:[],rows:[]};
-const V = window.VALVE_DATA    || {cols:[],rows:[]};
+let P = window.PIPELINE_DATA || {cols:[],rows:[]};   // 可被云端下发的数据覆盖
+let S = window.SUPPORT_DATA  || {cols:[],rows:[]};
+let V = window.VALVE_DATA    || {cols:[],rows:[]};
 const WALL = window.WALL_DATA || [];
 const WALL_CODES = window.WALL_CODES || [];
 
-// 云端备注 API（EdgeOne Pages Function /api/notes）；本地打开时不存在则离线降级
-let cloudReady = false;
-const NOTES_API = '/api/notes';
-// EdgeOne 预览链接靠 URL 上的 eo_token/eo_time 鉴权，API 请求必须原样带上，否则 401
-function notesUrl(){
-  try{
-    const q = new URLSearchParams(location.search);
-    const t = q.get('eo_token'), tm = q.get('eo_time');
-    if(t) return NOTES_API + '?eo_token=' + encodeURIComponent(t) + (tm ? '&eo_time=' + encodeURIComponent(tm) : '');
-  }catch(e){}
-  return NOTES_API;
+// 接口基址：网页版自动用当前域名；APK 内用「设置」里填写的正式域名
+function apiOrigin(){
+  let b = (localStorage.getItem('pipeApiBase')||'').trim();
+  if(!b && window.APP_CONFIG) b = String(window.APP_CONFIG.apiBase||'').trim();
+  b = b.replace(/\/+$/,'');
+  if(b) return b;
+  if(/^https?:$/.test(location.protocol)) return location.origin;
+  return '';   // APK 未配置服务器地址
 }
+function apiUrl(path, extra){
+  const base = apiOrigin();
+  if(!base) return '';
+  const out = new URLSearchParams();
+  // 预览链接的 eo_token 只在同域访问时才需要透传
+  if(base === location.origin){
+    try{
+      const q = new URLSearchParams(location.search);
+      const t = q.get('eo_token'), tm = q.get('eo_time');
+      if(t) out.set('eo_token', t);
+      if(tm) out.set('eo_time', tm);
+    }catch(e){}
+  }
+  if(extra) Object.keys(extra).forEach(k=>out.set(k, extra[k]));
+  const s = out.toString();
+  return base + path + (s ? '?' + s : '');
+}
+
+// 云端备注 API（EdgeOne Pages Function /api/notes）
+let cloudReady = false;
+function notesUrl(extra){ return apiUrl('/api/notes', extra); }
 async function initCloud(){
-  // 本地 file:// 打开时没有 /api，直接离线
-  if(location.protocol === 'file:'){ cloudReady = false; return false; }
+  const u = notesUrl();
+  if(!u){ cloudReady = false; return false; }   // 未配置服务器地址，离线运行
   try{
-    const res = await fetch(notesUrl(), { method:'GET' });
+    const res = await fetch(u, { method:'GET' });
     if(res.ok){ const j = await res.json(); cloudReady = !!(j && j.ok); return cloudReady; }
   }catch(e){ /* 无 API，离线模式 */ }
   cloudReady = false;
   return false;
 }
-// 本地缓存（离线兜底显示，真正数据以云端为准）
-let notesCache = {}; // support_no -> note row
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -359,15 +375,7 @@ function doSupportQuery(){
         <div class="sc-line"><span class="sc-label">支架号</span><span class="sc-val sc-purple">${esc(no)||'—'}</span></div>
         <div class="sc-line"><span class="sc-label">📊 状态</span><span class="status-tag">${esc(status)||'—'}</span></div>
         ${note?`<div class="sc-line sc-note"><span class="sc-label">📝 原备注</span><span class="sc-val">${esc(note)}</span></div>`:''}
-        <div class="cloud-note" data-no="${esc(no)}">
-          <div class="cn-title">☁️ 现场备注（上传后电脑端可导出）</div>
-          <input class="cn-input cn-note" type="text" placeholder="如：已找到，在A区3号管廊" value="${esc(notesCache[no]?notesCache[no].note:'')}" data-no="${esc(no)}">
-          <div class="cn-row">
-            <input class="cn-input cn-loc" type="text" placeholder="位置（可选）" value="${esc(notesCache[no]?notesCache[no].location:'')}" data-no="${esc(no)}">
-            <button class="cn-save" data-save-note="${esc(no)}">保存上传</button>
-          </div>
-          ${notesCache[no]?`<div class="cn-saved">✓ 已同步 ${esc(notesCache[no].savedAt||'')}</div>`:''}
-        </div>
+        ${noteBlock('support',no,'现场备注')}
       </div>
     </div>`;
   });
@@ -393,50 +401,122 @@ function renderSupportOverview(){
     `<div class="ov-note">* 统计数据基于当前 Excel 的「数据库状态 / RFI状态 / 安装日期 / 焊接日期」列；到货、领用等细分状态原表无对应字段。</div>`;
 }
 
-/* ---------- 云端支架备注（EdgeOne Pages KV） ---------- */
-function cloudMsg(t){ const el=$('noteStatus'); if(el) el.textContent=t; toast(t); }
-async function apiFetch(opt){
-  const res=await fetch(notesUrl(), opt);
+/* ---------- 现场备注：先存本机立即生效，有网自动补传后台 ---------- */
+const NOTE_LS = 'pipeNotes_v2';
+let noteStore = {};    // key = kind+':'+编号
+let noteQueue = [];    // 待上传的 key
+let noteFlushing = false;
+
+function cloudMsg(t){ const el=$('noteStatus'); if(el) el.textContent=t; }
+async function apiFetch(opt, extra){
+  const u = notesUrl(extra);
+  if(!u) throw new Error('未设置服务器地址');
+  const res=await fetch(u, opt);
   const j=await res.json().catch(()=>({}));
   if(!res.ok || j.error) throw new Error(j.error||('HTTP '+res.status));
   return j;
 }
-// 加载全部备注到缓存
-async function loadNotes(){
-  if(!cloudReady){ cloudMsg('云端未连接，请用在线网址打开'); return []; }
-  try{
-    const j=await apiFetch({method:'GET'});
-    const data=j.notes||[];
-    notesCache={};
-    data.forEach(n=>{ notesCache[n.support_no]={note:n.note,location:n.location||'',savedAt:fmtDate(n.updated_at||n.created_at),owner_name:n.owner_name||''}; });
-    updateNoteBadge(data.length);
-    return data;
-  }catch(e){ cloudMsg('加载失败：'+e.message); return []; }
-}
 function fmtDate(s){ if(!s) return ''; const d=new Date(s); if(isNaN(d)) return String(s); return d.toLocaleString('zh-CN',{hour12:false}).replace(/\//g,'-'); }
-function updateNoteBadge(n){ const b=$('noteCountBadge'); if(b) b.textContent=n; }
-// 保存一条备注（KV 用支架编号当 key，天然覆盖更新）
-async function saveNote(no){
-  if(!cloudReady){ cloudMsg('云端未连接，请用在线网址打开'); return; }
+function noteKey(kind,no){ return String(kind||'support')+':'+String(no||''); }
+function noteGet(kind,no){ return noteStore[noteKey(kind,no)]||null; }
+function noteReindex(){
+  noteQueue=Object.keys(noteStore).filter(k=>noteStore[k]&&noteStore[k].pending);
+  const b=$('noteCountBadge');
+  if(b) b.textContent = noteQueue.length ? (Object.keys(noteStore).length+'/待传'+noteQueue.length) : Object.keys(noteStore).length;
+}
+function noteLoadLocal(){
+  try{ noteStore=JSON.parse(localStorage.getItem(NOTE_LS)||'{}'); }catch(e){ noteStore={}; }
+  if(!noteStore||typeof noteStore!=='object') noteStore={};
+  noteReindex();
+}
+function notePersist(){
+  try{ localStorage.setItem(NOTE_LS,JSON.stringify(noteStore)); }catch(e){}
+  noteReindex();
+}
+// 备注输入区（支架卡片、支架/阀门详情共用）
+function noteBlock(kind, no, title){
+  const rec=noteGet(kind,no);
+  return `<div class="cloud-note" data-kind="${esc(kind)}" data-no="${esc(no)}">
+    <div class="cn-title">📝 ${esc(title||'现场备注')}（先存本机，有网自动上传）</div>
+    <input class="cn-input cn-note" type="text" placeholder="如：已找到，在A区3号管廊" value="${esc(rec?rec.note:'')}">
+    <div class="cn-row">
+      <input class="cn-input cn-loc" type="text" placeholder="位置（可选）" value="${esc(rec?rec.location:'')}">
+      <button class="cn-save" data-save-note="${esc(no)}" data-save-kind="${esc(kind)}">保存</button>
+    </div>
+    <div class="cn-saved${rec&&rec.pending?' pending':''}">${rec?(rec.pending?'✓ 已存本机 · 待上传':'✓ 已同步后台 '+(rec.syncedAt||rec.savedAt||'')):''}</div>
+  </div>`;
+}
+// 保存：无条件先写本机，不依赖网络
+async function saveNote(kind, no){
   let card=null;
-  document.querySelectorAll('.cloud-note').forEach(el=>{ if(el.dataset.no===no) card=el; });
+  document.querySelectorAll('.cloud-note').forEach(el=>{
+    if(el.dataset.kind===kind && el.dataset.no===no) card=el;
+  });
   if(!card) return;
   const note=(card.querySelector('.cn-note').value||'').trim();
   const location=(card.querySelector('.cn-loc').value||'').trim();
-  const owner=(localStorage.getItem('pipeUser')||'').trim();
-  if(!note){ cloudMsg('请先填写备注内容'); return; }
-  const btn=card.querySelector('.cn-save'); btn.disabled=true; btn.textContent='上传中…';
-  const row=S.rows.find(r=>String(r[idx.sNo]||'')===no) || {};
-  const payload={ support_no:no, note, location, iso_no:String(row[idx.sIso]||''), line_no:String(row[idx.sLine]||''), area:String(row[idx.sArea]||''), owner_name:owner };
-  try{
-    await apiFetch({method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
-    cloudMsg('✓ 已保存到云端'); await loadNotes(); doSupportQueryKeepKw();
-  }catch(e){ cloudMsg('上传失败：'+e.message); }
-  finally{ btn.disabled=false; btn.textContent='保存上传'; }
+  if(!note){ toast('请先填写备注内容'); return; }
+  noteStore[noteKey(kind,no)]={
+    kind,no,note,location,
+    owner_name:(localStorage.getItem('pipeUser')||''),
+    savedAt:fmtDate(new Date().toISOString()), pending:true
+  };
+  notePersist();
+  const st=card.querySelector('.cn-saved');
+  if(st){ st.textContent='✓ 已存本机 · 待上传'; st.className='cn-saved pending'; }
+  toast('已保存到本机，联网后自动上传');
+  flushNotes();
 }
-// 重新渲染支架列表但保留关键词
+// 有网时把待上传的逐条推到后台
+async function flushNotes(){
+  if(noteFlushing || !cloudReady || !noteQueue.length) return;
+  noteFlushing=true;
+  try{
+    for(const k of noteQueue.slice()){
+      const rec=noteStore[k];
+      if(!rec||!rec.pending) continue;
+      try{
+        await apiFetch({method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({support_no:rec.no,kind:rec.kind,note:rec.note,location:rec.location,
+            owner_name:rec.owner_name,iso_no:'',line_no:'',area:''})});
+        rec.pending=false; rec.syncedAt=fmtDate(new Date().toISOString());
+        notePersist();
+      }catch(e){ break; }   // 断网就停，下次再试
+    }
+    refreshNoteUI();
+  }finally{ noteFlushing=false; }
+}
+function refreshNoteUI(){
+  document.querySelectorAll('.cloud-note').forEach(el=>{
+    const rec=noteGet(el.dataset.kind,el.dataset.no);
+    const st=el.querySelector('.cn-saved'); if(!st) return;
+    if(!rec){ st.textContent=''; st.className='cn-saved'; return; }
+    st.textContent=rec.pending?'✓ 已存本机 · 待上传':'✓ 已同步后台 '+(rec.syncedAt||rec.savedAt||'');
+    st.className='cn-saved'+(rec.pending?' pending':'');
+  });
+  noteReindex();
+}
+// 云端备注合并进本机（本地待上传的优先保留）
+async function loadNotes(){
+  if(!cloudReady) return [];
+  try{
+    const j=await apiFetch({method:'GET'});
+    const data=Array.isArray(j.notes)?j.notes:[];
+    data.forEach(n=>{
+      if(!n || !n.support_no || Array.isArray(n)) return;   // 过滤索引脏数据
+      const kind=n.kind||'support', k=noteKey(kind,n.support_no);
+      if(noteStore[k] && noteStore[k].pending) return;
+      noteStore[k]={kind,no:String(n.support_no),note:n.note||'',location:n.location||'',
+        owner_name:n.owner_name||'',savedAt:fmtDate(n.updated_at||''),pending:false,
+        iso_no:n.iso_no||'',line_no:n.line_no||'',area:n.area||''};
+    });
+    notePersist();
+    refreshNoteUI();
+    return data;
+  }catch(e){ return []; }
+}
 function doSupportQueryKeepKw(){ doSupportQuery(); }
-// 打开备注控制台
+// 备注控制台：离线也能查看与导出
 async function openNoteConsole(){
   $('notePanel').classList.add('show'); $('noteMask').classList.add('show');
   await renderNoteConsole();
@@ -444,44 +524,524 @@ async function openNoteConsole(){
 function closeNoteConsole(){ $('notePanel').classList.remove('show'); $('noteMask').classList.remove('show'); }
 async function renderNoteConsole(){
   const body=$('noteBody');
-  if(!cloudReady){ body.innerHTML='<div class="more-tip">云端未连接。请确认已联网，并用在线网址打开本APP。</div>'; $('noteStatus').textContent='未连接云端'; return; }
-  $('noteStatus').textContent='正在加载云端备注…';
-  const rows=await loadNotes();
-  if(!rows.length){ body.innerHTML='<div class="nc-empty">📭 还没有备注。在支架卡片里填写并上传后，会显示在这里。</div>'; $('noteStatus').textContent='共 0 条备注'; return; }
+  if(cloudReady) await loadNotes();
+  const rows=Object.values(noteStore).filter(n=>n&&n.no&&!Array.isArray(n))
+    .sort((a,b)=>String(b.savedAt||'').localeCompare(String(a.savedAt||'')));
+  const pending=noteQueue.length;
+  $('noteStatus').textContent='共 '+rows.length+' 条备注'+(pending?' · '+pending+' 条待上传':'')+
+    (cloudReady?' · 云端已连接':' · 离线模式（有网自动上传）');
+  if(!rows.length){
+    body.innerHTML='<div class="nc-empty">📭 还没有备注。<br>在支架卡片，或支架 / 阀门的详情里填写并保存，就会显示在这里。</div>';
+    return;
+  }
   body.innerHTML=rows.map(n=>`<div class="nc-card">
-    <div class="nc-head"><span class="nc-no">🔧 ${esc(n.support_no||'')}</span><button class="nc-del" data-del-note="${esc(n.support_no||'')}">删除</button></div>
-    <div class="nc-line"><span>区域</span><b>${esc(n.area||'—')}</b></div>
-    <div class="nc-line"><span>管线号</span><b>${esc(n.line_no||'—')}</b></div>
+    <div class="nc-head">
+      <span class="nc-no">${n.kind==='valve'?'🚪':'🔧'} ${esc(n.no)}</span>
+      <span class="nc-tag ${n.pending?'wait':'ok'}">${n.pending?'待上传':'已同步'}</span>
+      <button class="nc-del" data-del-note="${esc(n.kind)}|${esc(n.no)}">删除</button>
+    </div>
+    <div class="nc-line"><span>类型</span><b>${n.kind==='valve'?'阀门':'支架'}</b></div>
     <div class="nc-line"><span>备注</span><b class="nc-note-txt">${esc(n.note||'')}</b></div>
     <div class="nc-line"><span>位置</span><b>${esc(n.location||'—')}</b></div>
-    <div class="nc-line"><span>录入</span><b>${esc(n.owner_name||'—')} · ${esc(fmtDate(n.updated_at||n.created_at))}</b></div>
+    <div class="nc-line"><span>录入</span><b>${esc(n.owner_name||'—')} · ${esc(n.savedAt||'')}</b></div>
   </div>`).join('');
-  $('noteStatus').textContent='共 '+rows.length+' 条备注';
 }
-// 导出 CSV（Excel 可直接打开，带 BOM 防中文乱码）
-async function exportNotes(){
-  if(!cloudReady){ cloudMsg('云端未连接'); return; }
-  try{
-    const j=await apiFetch({method:'GET'}); const data=j.notes||[];
-    if(!data.length){ cloudMsg('没有备注可导出'); return; }
-    const head=['支架编号','区域','管线号','图号','备注内容','位置','录入人','录入时间'];
-    const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-    const lines=[head.map(q).join(',')];
-    data.forEach(n=>lines.push([n.support_no,n.area,n.line_no,n.iso_no,n.note,n.location,n.owner_name,fmtDate(n.updated_at||n.created_at)].map(q).join(',')));
-    const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
-    const url=URL.createObjectURL(blob); const a=document.createElement('a');
-    a.href=url; a.download='支架备注_'+new Date().toISOString().slice(0,10)+'.csv';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    cloudMsg('已导出 '+data.length+' 条备注');
-  }catch(e){ cloudMsg('导出失败：'+e.message); }
+// 导出 CSV（本机 + 云端合并，离线也能导）
+function exportNotes(){
+  const rows=Object.values(noteStore).filter(n=>n&&n.no);
+  if(!rows.length){ toast('没有备注可导出'); return; }
+  const head=['类型','编号','备注内容','位置','录入人','录入时间','同步状态'];
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[head.map(q).join(',')];
+  rows.forEach(n=>lines.push([n.kind==='valve'?'阀门':'支架',n.no,n.note,n.location,n.owner_name,n.savedAt,n.pending?'待上传':'已同步'].map(q).join(',')));
+  const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download='现场备注_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  const st=$('noteStatus'); if(st) st.textContent='已导出 '+rows.length+' 条备注';
+  toast('已导出 '+rows.length+' 条备注');
 }
-async function deleteNote(no){
-  if(!no) return;
-  if(!confirm('确定删除支架 '+no+' 的备注？此操作不可恢复。')) return;
+async function deleteNote(combo){
+  if(!combo) return;
+  const [kind,no]=String(combo).split('|');
+  if(!confirm('确定删除 '+no+' 的备注？此操作不可恢复。')) return;
+  delete noteStore[noteKey(kind,no)];
+  notePersist();
+  if(cloudReady){
+    try{ await apiFetch({method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({support_no:no})}); }
+    catch(e){}
+  }
+  await renderNoteConsole(); refreshNoteUI(); doSupportQueryKeepKw();
+  toast('已删除');
+}
+
+/* ---------- 工作量 · 数据管理控制台（可录入台账） ---------- */
+// 列定义：与截图一致，14 个数据列 + 操作列
+const WORK_FIELDS = [
+  {k:'area',       t:'区域',             type:'text', cls:'area'},
+  {k:'pipeWorker', t:'管工',             type:'num',  cls:'num'},
+  {k:'welder',     t:'焊工',             type:'num',  cls:'num'},
+  {k:'common',     t:'普工',             type:'num',  cls:'num'},
+  {k:'pipeInst',   t:'管道安装(寸)',      type:'num',  cls:'num'},
+  {k:'pipePre',    t:'管道预制(寸)',      type:'num',  cls:'num'},
+  {k:'supInst',    t:'支架安装(个)',      type:'num',  cls:'num'},
+  {k:'instWeight', t:'安装重量(kg)',      type:'num',  cls:'num'},
+  {k:'valveInst',  t:'阀门安装(台)',      type:'num',  cls:'num'},
+  {k:'supPre',     t:'支架预制(个)',      type:'num',  cls:'num'},
+  {k:'preWeight',  t:'预制重量(kg)',      type:'num',  cls:'num'},
+  {k:'under2',     t:'包含2寸以下(寸)',   type:'num',  cls:'num'},
+  {k:'method',     t:'做法',             type:'text', cls:'method'},
+  {k:'date',       t:'日期',             type:'date', cls:'date'},
+];
+const WORK_NUM_FIELDS = WORK_FIELDS.filter(f=>f.type==='num');
+const WORK_LS = 'pipeWorkRows_v1';
+let workRows = [];
+let workCloud = false;                 // 工作台是否已连上云端 KV
+let workFilter = {from:'', to:''};
+let workSaveTimer = null;
+
+function workStatus(t, warn){
+  const el=$('workStatus');
+  if(el){ el.textContent=t; el.className='wc-status'+(warn?' warn':''); }
+}
+function workStatusDefault(){
+  workStatus(workCloud
+    ? '☁️ 云端已连接 · 共 '+workRows.length+' 条记录 · 修改后自动同步到云端'
+    : '💾 本地保存模式 · 共 '+workRows.length+' 条记录 · 数据保存在本机浏览器，可导出Excel');
+}
+function updateWorkBadge(){ const b=$('workCountBadge'); if(b) b.textContent=workRows.length; }
+function workLoadLocal(){
+  try{ workRows=JSON.parse(localStorage.getItem(WORK_LS)||'[]'); }catch(e){ workRows=[]; }
+  if(!Array.isArray(workRows)) workRows=[];
+  workRows=workRows.filter(r=>r&&r.id);
+}
+function workSaveLocal(){
+  try{ localStorage.setItem(WORK_LS, JSON.stringify(workRows)); }catch(e){}
+  updateWorkBadge();
+}
+// 云端可用时以云端为准合并，并把本地独有的记录补传上去
+async function workInitCloud(){
+  if(location.protocol==='file:' || !cloudReady){ workCloud=false; return; }
   try{
-    await apiFetch({method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({support_no:no})});
-    cloudMsg('已删除'); await loadNotes(); await renderNoteConsole(); doSupportQueryKeepKw();
-  }catch(e){ cloudMsg('删除失败：'+e.message); }
+    const j=await apiFetch({method:'GET'}, {type:'work'});
+    if(!j || !j.ok) throw new Error('work api unavailable');
+    workCloud=true;
+    const remote=j.rows||[];
+    const remoteIds=new Set(remote.map(r=>String(r.id)));
+    const map=new Map();
+    workRows.forEach(r=>map.set(String(r.id), r));
+    remote.forEach(r=>map.set(String(r.id), r));
+    workRows=[...map.values()];
+    workSaveLocal();
+    for(const r of workRows) if(!remoteIds.has(String(r.id))) await workPush(r);
+  }catch(e){ workCloud=false; }
+}
+async function workPush(row){
+  if(!workCloud || !row) return;
+  try{
+    await apiFetch({method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(row)}, {type:'work'});
+  }catch(e){ workStatus('云端同步失败，已保存在本机', true); }
+}
+async function workRemoveRemote(id){
+  if(!workCloud) return;
+  try{ await apiFetch({method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({id})}, {type:'work'}); }
+  catch(e){}
+}
+function workVisible(){
+  const f=workFilter.from, t=workFilter.to;
+  if(!f && !t) return workRows.slice();
+  return workRows.filter(r=>{
+    const d=String(r.date||'');
+    if(!d) return false;
+    if(f && d<f) return false;
+    if(t && d>t) return false;
+    return true;
+  });
+}
+function renderWorkFoot(){
+  const tfoot=$('workTfoot'); if(!tfoot) return;
+  const rows=workVisible();
+  const sum={}; WORK_NUM_FIELDS.forEach(f=>sum[f.k]=0);
+  rows.forEach(r=>WORK_NUM_FIELDS.forEach(f=>sum[f.k]+=numOf(r[f.k])));
+  tfoot.innerHTML='<tr><td>汇总</td>'+
+    WORK_FIELDS.filter(f=>f.k!=='area').map(f=>{
+      if(f.type==='num') return '<td>'+fmt(sum[f.k])+'</td>';
+      if(f.k==='date') return '<td>—</td>';
+      return '<td>备注汇总</td>';
+    }).join('')+'<td>'+rows.length+' 条</td></tr>';
+}
+function renderWorkConsole(){
+  const thead=$('workThead'), tbody=$('workTbody');
+  if(!thead || !tbody) return;
+  thead.innerHTML='<tr>'+WORK_FIELDS.map(f=>'<th>'+f.t+'</th>').join('')+'<th>操作</th></tr>';
+  const colspan=WORK_FIELDS.length+1;
+  const rows=workVisible();
+  let html='';
+  if(!rows.length){
+    html='<tr><td colspan="'+colspan+'"><div class="wc-empty-tip">'+
+      (workRows.length ? '该日期范围内没有记录，请调整筛选或点「清除筛选」' : '请至少选择开始或结束日期后再查询，或点下方「+ 新增一行记录」开始录入')+
+      '</div></td></tr>';
+  }else{
+    html=rows.map(r=>'<tr data-wid="'+esc(r.id)+'">'+
+      WORK_FIELDS.map(f=>{
+        const v=r[f.k]==null?'':r[f.k];
+        if(f.type==='date') return '<td><input type="date" class="wc-in date" data-wk="'+f.k+'" value="'+esc(v)+'"></td>';
+        if(f.k==='area')  return '<td><input type="text" class="wc-in area" data-wk="'+f.k+'" list="wcAreas" value="'+esc(v)+'" placeholder="区域"></td>';
+        return '<td><input type="text" '+(f.type==='num'?'inputmode="decimal" ':'')+'class="wc-in '+f.cls+'" data-wk="'+f.k+'" value="'+esc(v)+'" placeholder="'+(f.type==='num'?'0':'')+'"></td>';
+      }).join('')+
+      '<td><button class="wc-del" data-wdel="'+esc(r.id)+'">删除</button></td></tr>').join('');
+  }
+  html+='<tr class="wc-add-row"><td colspan="'+colspan+'"><button id="workAdd" class="wc-add">＋ 新增一行记录</button></td></tr>';
+  tbody.innerHTML=html;
+  renderWorkFoot();
+  workStatusDefault();
+}
+function addWorkRow(){
+  const today=new Date().toISOString().slice(0,10);
+  const row={ id:'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,7) };
+  WORK_FIELDS.forEach(f=>row[f.k]='');
+  row.date=workFilter.from || workFilter.to || today;
+  workRows.push(row);
+  workSaveLocal(); workPush(row); renderWorkConsole();
+  const el=$('workTbody').querySelector('tr[data-wid="'+row.id+'"]');
+  if(el && el.scrollIntoView) el.scrollIntoView({block:'center'});
+  workStatus('已新增一行，直接点单元格即可录入');
+}
+async function deleteWorkRow(id){
+  if(!confirm('确定删除这一行记录？此操作不可恢复。')) return;
+  workRows=workRows.filter(r=>String(r.id)!==String(id));
+  workSaveLocal(); workRemoveRemote(id); renderWorkConsole();
+  workStatus('已删除一行');
+}
+function onWorkEdit(e){
+  const inp=e.target.closest('input[data-wk]'); if(!inp) return;
+  const tr=inp.closest('tr[data-wid]'); if(!tr) return;
+  const row=workRows.find(r=>String(r.id)===tr.dataset.wid); if(!row) return;
+  row[inp.dataset.wk]=inp.value;
+  renderWorkFoot();
+  clearTimeout(workSaveTimer);
+  workSaveTimer=setTimeout(()=>{
+    workSaveLocal(); workPush(row);
+    workStatus(workCloud?'✓ 已同步到云端':'✓ 已保存到本机');
+  },500);
+}
+function exportWorkRows(){
+  const rows=workVisible();
+  if(!rows.length){ toast('当前没有记录可导出'); return; }
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[WORK_FIELDS.map(f=>q(f.t)).join(',')];
+  rows.forEach(r=>lines.push(WORK_FIELDS.map(f=>q(r[f.k])).join(',')));
+  const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download='工作量台账_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  workStatus('已导出 '+rows.length+' 条记录（Excel 可直接打开）');
+}
+function openWorkConsole(){
+  $('workPanel').classList.add('show'); $('workMask').classList.add('show');
+  renderWorkConsole();
+}
+function closeWorkConsole(){ $('workPanel').classList.remove('show'); $('workMask').classList.remove('show'); }
+
+/* ---------- 新表格导入 + 云端数据分发 ---------- */
+// 管线/支架/阀门可整体替换；gzip 后管线仅 ~0.7MB，分片上传绕开 1MB 请求限制
+const DS_NAMES = ['pipeline','support','valve'];
+const DS_LABEL = {pipeline:'管线', support:'支架', valve:'阀门'};
+const PART_SIZE = 450000;   // 每片 base64 字符数，留足 1MB 余量
+let importBusy = false, importTarget = 'pipeline';
+
+/* --- 本机缓存（IndexedDB，可放 20MB 级数据） --- */
+function idb(){
+  return new Promise((res,rej)=>{
+    if(!window.indexedDB) return rej(new Error('IndexedDB 不可用'));
+    let done=false;
+    const finish=(fn,v)=>{ if(done)return; done=true; clearTimeout(timer); fn(v); };
+    const timer=setTimeout(()=>finish(rej,new Error('IndexedDB 打开超时')),3000);
+    let q;
+    try{ q=indexedDB.open('pipeDataCache',1); }
+    catch(e){ return finish(rej,e); }
+    q.onupgradeneeded=()=>{ if(!q.result.objectStoreNames.contains('ds')) q.result.createObjectStore('ds'); };
+    q.onsuccess=()=>finish(res,q.result);
+    q.onerror=()=>finish(rej,q.error);
+    q.onblocked=()=>finish(rej,new Error('IndexedDB 被阻塞'));
+  });
+}
+async function cacheGet(k){
+  try{
+    const db=await idb();
+    return await new Promise((res,rej)=>{
+      const r=db.transaction('ds','readonly').objectStore('ds').get(k);
+      r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+    });
+  }catch(e){ return null; }
+}
+async function cachePut(k,v){
+  try{
+    const db=await idb();
+    await new Promise((res,rej)=>{
+      const t=db.transaction('ds','readwrite');
+      t.objectStore('ds').put(v,k); t.oncomplete=res; t.onerror=()=>rej(t.error);
+    });
+  }catch(e){}
+}
+async function cacheDel(k){
+  try{
+    const db=await idb();
+    await new Promise((res)=>{
+      const t=db.transaction('ds','readwrite');
+      t.objectStore('ds').delete(k); t.oncomplete=res; t.onerror=res;
+    });
+  }catch(e){}
+}
+
+/* --- gzip / base64 --- */
+// 用 pako 纯 JS 实现，老版本 Android WebView 也能解压（不依赖 CompressionStream）
+async function gzipBytes(str){
+  if(!window.pako) throw new Error('缺少 vendor/pako.min.js');
+  return window.pako.gzip(new TextEncoder().encode(str));
+}
+async function gunzipStr(bytes){
+  if(!window.pako) throw new Error('缺少 vendor/pako.min.js');
+  return new TextDecoder().decode(window.pako.ungzip(bytes));
+}
+function bytesToB64(u8){
+  let s=''; const CH=0x8000;
+  for(let i=0;i<u8.length;i+=CH) s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));
+  return btoa(s);
+}
+function b64ToBytes(s){
+  const bin=atob(s), u8=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+  return u8;
+}
+
+/* --- 云端 /api/data --- */
+async function dataGet(name, part){
+  const u=apiUrl('/api/data', part==null?{name}:{name,part});
+  if(!u) return null;
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),15000);
+  try{
+    const r=await fetch(u,{signal:ctl.signal});
+    if(!r.ok) return null;
+    return part==null ? await r.json() : await r.text();
+  }finally{ clearTimeout(timer); }
+}
+async function dataPost(body){
+  const u=apiUrl('/api/data');
+  if(!u) throw new Error('未设置服务器地址');
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),10000);
+  try{
+    const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctl.signal});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok || j.error) throw new Error(j.error||('HTTP '+r.status));
+    return j;
+  }finally{ clearTimeout(timer); }
+}
+// 把「本机已更新但还没传上去」的数据补传到后台
+async function flushPendingData(){
+  if(!apiOrigin() || navigator.onLine===false) return;
+  for(const n of DS_NAMES){
+    const p=await cacheGet('pending_'+n);
+    if(!p || !p.meta || !p.b64 || !p.meta.parts) continue;
+    try{
+      for(let i=0;i<p.meta.parts;i++){
+        await dataPost({action:'part',name:n,part:i,data:p.b64.slice(i*PART_SIZE,(i+1)*PART_SIZE)});
+      }
+      await dataPost({action:'meta',name:n,meta:p.meta});
+      await cacheDel('pending_'+n);
+    }catch(e){ console.warn(DS_LABEL[n]+' 待上传数据暂无法同步：',e.message); break; }
+  }
+}
+function applyDataset(name, ds){
+  if(name==='pipeline') P=ds;
+  else if(name==='support') S=ds;
+  else if(name==='valve') V=ds;
+}
+async function loadCachedData(){
+  for(const n of DS_NAMES){
+    const c=await cacheGet('ds_'+n);
+    if(c && c.data && c.data.rows && c.data.rows.length) applyDataset(n,c.data);
+  }
+}
+let bootSyncAbort = false;   // 启动同步超时后禁止再改数据，避免索引与数据不一致
+async function syncFromCloud(){
+  if(!apiOrigin()) return false;
+  let changed=false;
+  // 先把本机尚未上传的新表格补传上去，让其他手机能拿到
+  await flushPendingData().catch(()=>{});
+  const metas = await Promise.all(DS_NAMES.map(n=>dataGet(n).catch(()=>null)));
+  for(let k=0;k<DS_NAMES.length;k++){
+    const n=DS_NAMES[k], r=metas[k], meta=r && r.meta;
+    if(!meta || !meta.parts) continue;
+    try{
+      const c=await cacheGet('ds_'+n);
+      if(c && c.version===meta.version && c.data){ if(!bootSyncAbort) applyDataset(n,c.data); continue; }
+      let b64='';
+      for(let i=0;i<meta.parts;i++){
+        const t=await dataGet(n,i);
+        if(t==null) throw new Error('分片 '+i+' 读取失败');
+        b64+=t;
+      }
+      const ds=JSON.parse(await gunzipStr(b64ToBytes(b64)));
+      if(!ds || !ds.rows || !ds.rows.length) throw new Error('数据内容为空');
+      await cachePut('ds_'+n,{version:meta.version,data:ds});
+      if(!bootSyncAbort){ applyDataset(n,ds); changed=true; }
+    }catch(e){ console.warn('同步 '+DS_LABEL[n]+' 失败：',e.message); }
+  }
+  return changed;
+}
+
+/* --- Excel -> 列式数据（与 _export.py 的转换规则一致） --- */
+function ensureXLSX(){
+  if(window.XLSX) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='vendor/xlsx.full.min.js';
+    s.onload=()=>window.XLSX?res():rej(new Error('表格解析库加载失败'));
+    s.onerror=()=>rej(new Error('缺少 vendor/xlsx.full.min.js'));
+    document.head.appendChild(s);
+  });
+}
+function normVal(v){
+  if(v==null) return '';
+  if(v instanceof Date){
+    const y=v.getFullYear(), m=String(v.getMonth()+1).padStart(2,'0'), d=String(v.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+d;
+  }
+  return String(v);
+}
+function cleanCol(c){ return String(c==null?'':c).replace(/[\n\r]/g,' ').replace(/\s+/g,' ').trim(); }
+function dedupeCols(cols){
+  const seen={}, out=[];
+  cols.forEach((raw,i)=>{
+    let c=cleanCol(raw);
+    if(!c) c='未命名'+(i+1);
+    if(c in seen){ seen[c]+=1; c=c+'('+seen[c]+')'; }
+    else seen[c]=0;
+    out.push(c);
+  });
+  return out;
+}
+function trimRow(row){ let e=row.length; while(e>0 && row[e-1]==='') e--; return row.slice(0,e); }
+function valveColName(s){
+  const t=cleanCol(s).replace(/[А-Яа-яЁё]/g,'').replace(/№/g,'').replace(/\*/g,'');
+  const toks=t.split(/\s+/).filter(Boolean);
+  while(toks.length && !/[\u4e00-\u9fff]/.test(toks[0])) toks.shift();
+  return toks.join(' ').trim() || t;
+}
+async function parseExcel(buf, name){
+  await ensureXLSX();
+  const wb=window.XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  if(!ws) throw new Error('表格里没有工作表');
+  const arr=window.XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const headerIdx = name==='support' ? 1 : 0;
+  // 支架表头行数可能变化（有的版本 2 行、有的 3 行），用「序号列出现第一个数字」动态定位数据起始行
+  let dataIdx = headerIdx + 1;
+  if(name==='support'){
+    let found=-1;
+    for(let i=headerIdx+1;i<Math.min(headerIdx+8,arr.length);i++){
+      const first=String((arr[i]||[])[0]==null?'':(arr[i]||[])[0]).trim();
+      if(/^\d+$/.test(first)){ found=i; break; }
+    }
+    dataIdx = found>=0 ? found : headerIdx+2;
+  }
+  const rawCols   = arr[headerIdx]||[];
+  const cols = name==='valve'
+    ? dedupeCols(rawCols.map(v=>valveColName(normVal(v))))
+    : dedupeCols(rawCols.map(v=>cleanCol(normVal(v))));
+  const ncol=cols.length, rows=[];
+  for(let i=dataIdx;i<arr.length;i++){
+    const r=arr[i]||[], vals=[];
+    for(let j=0;j<ncol;j++) vals.push(normVal(r[j]==null?'':r[j]));
+    if(!vals.some(v=>v!=='')) continue;
+    rows.push(trimRow(vals));
+  }
+  if(!rows.length) throw new Error('没有读到数据行，请确认表格格式和所选功能对应');
+  return {cols,rows};
+}
+
+/* --- 导入进度浮层 --- */
+function showImport(msg, pct){
+  const m=$('importMask'); if(!m) return;
+  m.classList.add('show');
+  $('importMsg').textContent=msg;
+  if(pct!=null) $('importBar').style.width=Math.max(3,Math.min(100,pct))+'%';
+}
+function hideImport(){ const m=$('importMask'); if(m) m.classList.remove('show'); }
+
+/* --- 导入主流程 --- */
+async function importExcel(file, name){
+  if(importBusy) return;
+  importBusy=true;
+  showImport('读取文件：'+file.name, 5);
+  try{
+    const buf=await file.arrayBuffer();
+    showImport('解析 '+DS_LABEL[name]+'表格（大表约需十几秒）', 15);
+    const ds=await parseExcel(buf,name);
+    showImport('读到 '+ds.rows.length+' 行 / '+ds.cols.length+' 列，正在压缩', 38);
+    const gz=await gzipBytes(JSON.stringify(ds));
+    const b64=bytesToB64(gz);
+    const parts=Math.ceil(b64.length/PART_SIZE);
+    const meta={name,parts,rows:ds.rows.length,cols:ds.cols.length,bytes:gz.length,
+      version:Date.now(),updated_at:new Date().toISOString(),
+      owner_name:(localStorage.getItem('pipeUser')||'')};
+    // ① 无条件先更新本机，断网也能立刻用
+    await cachePut('ds_'+name,{version:meta.version,data:ds});
+    await cachePut('pending_'+name,{meta,b64});
+    showImport('已更新本机数据，正在尝试同步到后台', 55);
+    // ② 有网才上传；失败不影响本机结果，留待自动补传
+    let synced=false;
+    try{
+      if(apiOrigin() && navigator.onLine!==false){
+        for(let i=0;i<parts;i++){
+          showImport('上传分片 '+(i+1)+' / '+parts, 58+Math.round(32*(i+1)/parts));
+          await dataPost({action:'part',name,part:i,data:b64.slice(i*PART_SIZE,(i+1)*PART_SIZE)});
+        }
+        await dataPost({action:'meta',name,meta});
+        await cacheDel('pending_'+name);
+        synced=true;
+      }
+    }catch(e){ console.warn('同步失败，数据已存本机待补传',e); }
+    showImport(synced?'✓ 已更新并同步到后台，正在刷新…':'✓ 已更新本机，联网后自动同步，正在刷新…', 100);
+    toast(synced?'数据已同步，所有手机将自动更新':'已更新本机，联网后自动同步');
+    setTimeout(()=>location.reload(),1000);
+  }catch(e){
+    hideImport();
+    toast('导入失败：'+e.message);
+    console.error(e);
+  }finally{ importBusy=false; }
+}
+
+/* --- 设置弹层 --- */
+function openCfg(){
+  $('cfgName').value=localStorage.getItem('pipeUser')||'';
+  $('cfgApi').value=localStorage.getItem('pipeApiBase')||'';
+  $('cfgPanel').classList.add('show'); $('cfgMask').classList.add('show');
+  renderCfgVersion();
+}
+function closeCfg(){ $('cfgPanel').classList.remove('show'); $('cfgMask').classList.remove('show'); }
+async function renderCfgVersion(){
+  const el=$('cfgVersion'); if(!el) return;
+  const lines=[];
+  let pendingData=0;
+  for(const n of DS_NAMES){ if(await cacheGet('pending_'+n)) pendingData++; }
+  if(noteQueue.length) lines.push('<div style="color:#b45309">📝 备注：'+noteQueue.length+' 条待上传</div>');
+  if(pendingData) lines.push('<div style="color:#b45309">📦 表格：'+pendingData+' 张待上传</div>');
+  if(!apiOrigin()){
+    el.innerHTML='⚠️ 未设置服务器地址，暂为纯本机模式（数据已保存，不会丢失）。<br>填入正式域名并联网后会自动上传。'+(lines.length?'<br>'+lines.join(''):'');
+    return;
+  }
+  el.textContent='读取中…';
+  for(const n of DS_NAMES){
+    try{
+      const r=await dataGet(n), m=r&&r.meta, c=await cacheGet('ds_'+n);
+      if(!m) lines.push('<div>'+DS_LABEL[n]+'：云端暂无更新（使用内置数据）</div>');
+      else lines.push('<div>'+DS_LABEL[n]+'：云端 '+(m.rows||0)+' 行 · '+esc(fmtDate(m.updated_at))+
+        (c&&c.version===m.version?' · <b style="color:#07c160">本机已最新</b>':' · <b style="color:#e0483e">本机待更新</b>')+'</div>');
+    }catch(e){ lines.push('<div>'+DS_LABEL[n]+'：读取失败</div>'); }
+  }
+  el.innerHTML=lines.join('');
 }
 
 /* ---------- 壁厚规格查询器 ---------- */
@@ -728,6 +1288,11 @@ function openDetail(page, i, fromRel){
       html+=`<div class="dkv"><span class="k">${f}</span><span class="v ${v?'':'empty'}">${v?esc(v):'—'}</span></div>`;
     });
   });
+  // 支架 / 阀门详情里也能直接写现场备注（离线先存，有网补传）
+  if(page==='support' || page==='valve'){
+    const no=String(page==='support' ? val(r,S,'支架编号') : val(r,V,'阀门识别代码')||'').trim();
+    if(no) html+=noteBlock(page,no,'现场备注');
+  }
   $('detailBody').innerHTML=html;
   $('detailBody').scrollTop=0;
   $('detailPanel').classList.add('show');
@@ -898,6 +1463,39 @@ function bind(){
   // 工作量页子tab + 日期查询
   document.querySelectorAll('.work-tab').forEach(t=>t.addEventListener('click',()=>switchWorkTab(t.dataset.wtab)));
   $('dateQuery').addEventListener('click',()=>renderWorkDaily($('dateFrom').value,$('dateTo').value));
+  // 工作台 · 数据管理控制台
+  $('openWorkConsole').addEventListener('click',openWorkConsole);
+  $('workClose').addEventListener('click',closeWorkConsole);
+  $('workMask').addEventListener('click',closeWorkConsole);
+  $('workExport').addEventListener('click',exportWorkRows);
+  $('wfQuery').addEventListener('click',()=>{
+    workFilter={from:$('wfFrom').value||'',to:$('wfTo').value||''};
+    renderWorkConsole();
+    if(!workFilter.from && !workFilter.to) workStatus('请至少选择开始或结束日期后再查询',true);
+    else workStatus('已筛选：'+(workFilter.from||'不限')+' ~ '+(workFilter.to||'不限')+'，共 '+workVisible().length+' 条');
+  });
+  $('wfClear').addEventListener('click',()=>{
+    $('wfFrom').value=''; $('wfTo').value=''; workFilter={from:'',to:''};
+    renderWorkConsole(); workStatus('已清除筛选，显示全部 '+workRows.length+' 条记录');
+  });
+  $('wfApplyDate').addEventListener('click',()=>{
+    const d=$('wfUnify').value;
+    if(!d){ toast('请先选择统一日期'); return; }
+    const vis=workVisible();
+    if(!vis.length){ toast('当前没有可修改的记录'); return; }
+    if(!confirm('把当前 '+vis.length+' 行的日期统一改为 '+d+' ？')) return;
+    vis.forEach(r=>{ r.date=d; });
+    workSaveLocal(); renderWorkConsole();
+    vis.forEach(workPush);
+    workStatus('已把 '+vis.length+' 行日期统一为 '+d);
+  });
+  $('workTbody').addEventListener('click',e=>{
+    if(e.target.closest('#workAdd')){ addWorkRow(); return; }
+    const d=e.target.closest('[data-wdel]');
+    if(d) deleteWorkRow(d.dataset.wdel);
+  });
+  $('workTbody').addEventListener('input',onWorkEdit);
+  $('workTbody').addEventListener('change',onWorkEdit);
   // 管线
   $('btnSearch').addEventListener('click',doPipeQuery);
   $('kwInput').addEventListener('keydown',e=>{ if(e.key==='Enter') doPipeQuery(); });
@@ -990,7 +1588,7 @@ function bind(){
     if(cn){
       e.stopPropagation();
       const sv=e.target.closest('[data-save-note]');
-      if(sv) saveNote(sv.dataset.saveNote);
+      if(sv) saveNote(sv.dataset.saveKind||'support', sv.dataset.saveNote);
       return;
     }
     const card=e.target.closest('.support-card');
@@ -1004,11 +1602,19 @@ function bind(){
   $('noteExport').addEventListener('click',exportNotes);
   $('noteBody').addEventListener('click',e=>{
     const d=e.target.closest('[data-del-note]');
-    if(d) deleteNote(+d.dataset.delNote);
+    if(d) deleteNote(d.dataset.delNote);
   });
   $('detailClose').addEventListener('click',closeDetail);
   $('detailMask').addEventListener('click',closeDetail);
   $('detailBody').addEventListener('click',e=>{
+    // 详情里的备注区：拦截冒泡，处理保存
+    const cn=e.target.closest('.cloud-note');
+    if(cn){
+      e.stopPropagation();
+      const sv=e.target.closest('[data-save-note]');
+      if(sv) saveNote(sv.dataset.saveKind||'support', sv.dataset.saveNote);
+      return;
+    }
     const back=e.target.closest('#relBackBtn');
     if(back){ if(relBack) showRelList(relBack.page, relBack.iso, relBack.line); return; }
     const pill=e.target.closest('.stage-pill');
@@ -1027,11 +1633,44 @@ function bind(){
       else showRelList(b.dataset.rel, b.dataset.iso);
     }
   });
-  $('nameBtn').addEventListener('click',()=>{
-    const n=prompt('设置姓名:', localStorage.getItem('pipeUser')||'');
-    if(n!==null){ localStorage.setItem('pipeUser',n); $('nameBtn').textContent=n?'👤 '+n:'👤 设置姓名'; }
+  // 设置弹层（姓名 / 服务器地址 / 数据版本）
+  $('nameBtn').addEventListener('click',openCfg);
+  $('cfgClose').addEventListener('click',closeCfg);
+  $('cfgMask').addEventListener('click',closeCfg);
+  $('cfgSave').addEventListener('click',()=>{
+    localStorage.setItem('pipeUser',$('cfgName').value.trim());
+    localStorage.setItem('pipeApiBase',$('cfgApi').value.trim());
+    closeCfg(); toast('设置已保存，正在重新连接');
+    setTimeout(()=>location.reload(),700);
   });
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeDetail(); });
+  $('cfgCheck').addEventListener('click',async()=>{
+    if(!apiOrigin()){ toast('请先在上方填写服务器地址'); return; }
+    toast('正在检查云端数据…');
+    bootSyncAbort=false;
+    const changed=await syncFromCloud();
+    await renderCfgVersion();
+    if(changed){ toast('已拉到新数据，正在刷新'); setTimeout(()=>location.reload(),900); }
+    else toast('已是最新数据');
+  });
+  $('cfgReset').addEventListener('click',async()=>{
+    if(!confirm('恢复为 APP 内置数据？本机已下载的云端数据将被清除。')) return;
+    for(const n of DS_NAMES) await cacheDel('ds_'+n);
+    toast('已清除本机缓存，正在刷新');
+    setTimeout(()=>location.reload(),700);
+  });
+  // 三个页面的「导入新表格」
+  document.querySelectorAll('[data-import]').forEach(b=>b.addEventListener('click',()=>{
+    importTarget=b.dataset.import;
+    $('excelFile').value='';
+    $('excelFile').click();
+  }));
+  $('excelFile').addEventListener('change',e=>{
+    const f=e.target.files && e.target.files[0];
+    if(f) importExcel(f,importTarget);
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){ closeDetail(); closeNoteConsole(); closeWorkConsole(); closeCfg(); }
+  });
 }
 
 /* ---------- 启动 ---------- */
@@ -1051,15 +1690,43 @@ function init(){
   buildNpsSelect();
   calcElbow();
   bind();
-  const saved=localStorage.getItem('pipeUser'); if(saved) $('nameBtn').textContent='👤 '+saved;
   $('pageTitle').textContent='管线';
   $('topRight').style.visibility='visible';
-  // 云端备注：探测 /api/notes 是否可用（本地file://打开时自动离线降级）
-  initCloud().then(ok=>{ if(ok) loadNotes().catch(()=>{}); }).catch(()=>{});
+  // 现场备注：先读本机，离线也能看和导出
+  noteLoadLocal();
+  // 工作台：先读本机记录，再准备区域下拉提示
+  workLoadLocal();
+  updateWorkBadge();
+  const dl=document.createElement('datalist'); dl.id='wcAreas';
+  dl.innerHTML=(idx.areas||[]).slice(0,80).map(a=>'<option value="'+esc(a)+'"></option>').join('');
+  $('workPanel').appendChild(dl);
+  // 云端探测（本地 file:// 自动离线降级）：可用时合并云端数据并补传待上传内容
+  initCloud().then(ok=>{
+    if(!ok) return;
+    loadNotes().then(()=>flushNotes()).catch(()=>{});
+    workInitCloud().then(()=>{ if($('workPanel').classList.contains('show')) renderWorkConsole(); }).catch(()=>{});
+  }).catch(()=>{});
+  // 网络恢复或定时重试：把「待上传」的备注自动推到后台
+  window.addEventListener('online',()=>{
+    initCloud().then(ok=>{ if(ok) loadNotes().then(()=>flushNotes()).catch(()=>{}); }).catch(()=>{});
+  });
+  setInterval(()=>{ if(navigator.onLine!==false) flushNotes(); },30000);
 }
-function boot(){
+async function boot(){
+  $('loadingMsg').textContent='正在检查云端数据更新…';
+  $('loadingBar').style.width='12%';
+  // 准备阶段整体限时 8 秒：无论缓存/网络是否可用，都必须进入主界面
+  const prepare=(async()=>{
+    try{ await loadCachedData(); }catch(e){ console.warn('本地缓存读取失败',e); }
+    $('loadingBar').style.width='28%';
+    try{ await syncFromCloud(); }catch(e){ console.warn('云端同步跳过',e); }
+  })();
+  await Promise.race([
+    prepare.catch(()=>{}),
+    new Promise(r=>setTimeout(()=>{ bootSyncAbort=true; r(); },8000))
+  ]);
   $('loadingMsg').textContent='正在解析数据（约 23 MB），请稍候…';
-  $('loadingBar').style.width='35%';
+  $('loadingBar').style.width='55%';
   setTimeout(()=>{
     try{ init(); $('loadingBar').style.width='100%'; $('loadingMsg').textContent='加载完成'; setTimeout(()=>{$('loading').style.display='none';},300); }
     catch(err){ $('loadingMsg').innerHTML='<span style="color:#ffd0d0">加载失败：'+esc(err.message)+'</span>'; console.error(err); }
