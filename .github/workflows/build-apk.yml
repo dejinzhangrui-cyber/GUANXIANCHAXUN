@@ -1,0 +1,83 @@
+name: 构建 Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 拉取仓库代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 准备 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 准备 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Android 34 组件并接受许可
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          yes | sdkmanager --licenses > /dev/null || true
+
+      - name: 组装网页资源
+        run: |
+          mkdir -p www
+          cp -r index.html app.css app.js data vendor www/
+          echo "已复制前端资源："
+          du -sh www/
+
+      - name: 写入默认服务器地址（可选仓库变量 API_BASE）
+        env:
+          API_BASE: ${{ vars.API_BASE }}
+        run: |
+          if [ -n "$API_BASE" ]; then
+            sed -i "s|apiBase: ''|apiBase: '$API_BASE'|" www/index.html
+            echo "已写入默认服务器地址，APK 开箱即用"
+          else
+            echo "未设置 API_BASE：APK 首次打开后在「设置」里填一次正式域名即可"
+          fi
+
+      - name: 安装 Capacitor 依赖
+        run: |
+          cp android-package.json package.json
+          npm install --no-audit --no-fund
+
+      - name: 生成 Android 工程
+        run: npx cap add android
+
+      - name: 同步网页资源到 Android 工程
+        run: npx cap sync android
+
+      - name: 允许 APK 选择本机 Excel 文件
+        run: |
+          MAN=android/app/src/main/AndroidManifest.xml
+          if ! grep -q "READ_EXTERNAL_STORAGE" "$MAN"; then
+            sed -i 's|</manifest>|    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n</manifest>|' "$MAN"
+          fi
+          grep -n "uses-permission" "$MAN" || true
+
+      - name: 构建 Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 管道数据查询-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
